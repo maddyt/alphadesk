@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+
+body {
+  background: theme('colors.canvas');
+  color: theme('colors.ink');
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+@layer components {
+  .card { @apply bg-surface border border-rule rounded-lg p-4; }
+  .stat-k { @apply text-[10.5px] uppercase tracking-wider text-muted; }
+  .stat-v { @apply font-mono text-xl font-bold tabular-nums; }
+  .tbl { @apply w-max min-w-full text-[12.8px] tabular-nums; }
+  .tbl th { @apply sticky top-0 bg-surface z-10 px-3 py-2 text-right font-semibold text-[11.5px] text-muted border-b-2 border-rule whitespace-nowrap; }
+  .tbl td { @apply px-3 py-1 border-b border-rule whitespace-nowrap; }
+  .tbl td.num { @apply text-right font-mono text-[12.3px]; }
+  .tbl td.li, .tbl th.li { @apply sticky left-0 bg-surface text-left border-r border-rule z-20; }
+  .tbl tr.total td { @apply font-bold border-t border-ink/40; }
+  .proj { background: rgba(14,110,94,.065); }
+  .scroller { @apply overflow-x-auto border border-rule rounded-lg bg-surface; }
+  .chip { @apply inline-block text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded text-white; }
+}
