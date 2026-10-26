@@ -4,33 +4,42 @@ import type { AssumptionKey, Assumptions, SliderRange } from '@/lib/engine/model
 
 type Fmt = 'pct' | 'x';
 
-const GROUPS: { title: string; hint: string; items: { key: AssumptionKey; label: string; fmt: Fmt }[] }[] = [
+interface Item {
+  key: AssumptionKey;
+  label: string;
+  term: string;
+  help: string;
+  fmt: Fmt;
+}
+
+// Plain-English label first, banker term second, and one line on which way it pushes value.
+const GROUPS: { title: string; hint: string; items: Item[] }[] = [
   {
-    title: 'DCF',
-    hint: 'Moves the DCF bar',
+    title: 'Cash-flow valuation',
+    hint: 'moves the DCF bar',
     items: [
-      { key: 'wacc', label: 'WACC', fmt: 'pct' },
-      { key: 'terminalGrowth', label: 'Perpetuity growth', fmt: 'pct' },
-      { key: 'exitMultiple', label: 'Exit EV/EBITDA', fmt: 'x' },
+      { key: 'wacc', label: 'Required return', term: 'WACC', fmt: 'pct', help: 'The yearly return investors demand. Higher → future cash is worth less today → lower value.' },
+      { key: 'terminalGrowth', label: 'Long-term growth', term: 'Perpetuity growth', fmt: 'pct', help: 'How fast cash flow grows forever after year 5. Higher → higher value.' },
+      { key: 'exitMultiple', label: 'Year-5 sale price', term: 'Exit EV/EBITDA', fmt: 'x', help: 'What the business could sell for in year 5, as a multiple of its yearly profit. Higher → higher value.' },
     ],
   },
   {
-    title: 'Operating case',
-    hint: 'DCF and LBO cash flows',
+    title: 'Business outlook',
+    hint: 'moves DCF and LBO',
     items: [
-      { key: 'revenueGrowth', label: 'Revenue growth (Y1)', fmt: 'pct' },
-      { key: 'ebitMargin', label: 'EBIT margin', fmt: 'pct' },
-      { key: 'taxRate', label: 'Tax rate', fmt: 'pct' },
+      { key: 'revenueGrowth', label: 'Sales growth next year', term: 'Revenue growth Y1', fmt: 'pct', help: 'Fades toward long-term growth by year 5. Higher → higher value.' },
+      { key: 'ebitMargin', label: 'Profit per $1 of sales', term: 'EBIT margin', fmt: 'pct', help: 'Operating profit as a share of revenue. Higher → higher value.' },
+      { key: 'taxRate', label: 'Tax rate', term: 'Effective tax', fmt: 'pct', help: 'Share of profit paid in tax. Higher → lower value.' },
     ],
   },
   {
-    title: 'Transaction',
-    hint: 'Precedents and LBO floor',
+    title: 'If someone bought the company',
+    hint: 'moves Precedents and LBO',
     items: [
-      { key: 'controlPremium', label: 'Control premium', fmt: 'pct' },
-      { key: 'lboLeverage', label: 'LBO leverage (Debt/EBITDA)', fmt: 'x' },
-      { key: 'lboTargetIrr', label: 'Sponsor target IRR', fmt: 'pct' },
-      { key: 'lboInterestRate', label: 'Cost of LBO debt', fmt: 'pct' },
+      { key: 'controlPremium', label: 'Takeover premium', term: 'Control premium', fmt: 'pct', help: 'Extra a buyer typically pays over the market price to take control. Higher → higher Precedents bar.' },
+      { key: 'lboLeverage', label: 'Borrowing used by a buyout fund', term: 'Debt / EBITDA', fmt: 'x', help: 'Debt raised as a multiple of yearly profit. More debt → fund can pay more.' },
+      { key: 'lboTargetIrr', label: "Fund's target return", term: 'Target IRR', fmt: 'pct', help: 'Yearly return a private-equity buyer insists on. Higher → it can pay less → lower floor.' },
+      { key: 'lboInterestRate', label: 'Interest rate on that debt', term: 'Cost of debt', fmt: 'pct', help: 'Higher interest eats cash flow → fund can pay less.' },
     ],
   },
 ];
@@ -55,6 +64,9 @@ export function Sliders({
   const changed = (Object.keys(a) as AssumptionKey[]).some((k) => Math.abs(a[k] - defaults[k]) > 1e-9);
   return (
     <div className="space-y-6">
+      <p className="rounded-lg bg-raised/60 px-3 py-2 text-[11.5px] leading-relaxed text-sub">
+        Every valuation rests on assumptions. Drag a slider and watch the bars on the chart move. That shows which assumptions really change the answer.
+      </p>
       {GROUPS.map((g) => (
         <div key={g.title}>
           <div className="mb-3 flex items-baseline justify-between">
@@ -62,7 +74,7 @@ export function Sliders({
             <span className="text-[10.5px] text-mute">{g.hint}</span>
           </div>
           <div className="space-y-4">
-            {g.items.map(({ key, label, fmt }) => {
+            {g.items.map(({ key, label, term, help, fmt }) => {
               const r = ranges[key];
               const v = a[key];
               const fill = ((v - r.min) / (r.max - r.min)) * 100;
@@ -70,7 +82,9 @@ export function Sliders({
               return (
                 <label key={key} className="block">
                   <div className="mb-1 flex items-center justify-between text-[12.5px]">
-                    <span className="text-sub">{label}</span>
+                    <span className="text-ink">
+                      {label} <span className="text-[10.5px] text-mute">· {term}</span>
+                    </span>
                     <span className="flex items-center gap-2">
                       {moved && (
                         <button
@@ -103,6 +117,7 @@ export function Sliders({
                     <span>{show(r.min, fmt)}</span>
                     <span>{show(r.max, fmt)}</span>
                   </div>
+                  <p className="mt-0.5 text-[10.5px] leading-snug text-mute">{help}</p>
                 </label>
               );
             })}
@@ -115,7 +130,7 @@ export function Sliders({
         onClick={onReset}
         className="w-full rounded-lg border border-line py-2 text-xs font-medium text-sub transition hover:border-brand/50 hover:text-ink disabled:opacity-40"
       >
-        Reset to base case
+        Reset all to starting assumptions
       </button>
     </div>
   );

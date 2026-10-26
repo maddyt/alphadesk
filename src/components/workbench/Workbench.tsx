@@ -192,8 +192,8 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
         <aside className="order-2 lg:order-1">
           <div className="rounded-2xl border border-line bg-panel/80 p-5 lg:sticky lg:top-20">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-ink">Sensitivity controls</h2>
-              <span className="text-[10.5px] text-mute">recomputes live</span>
+              <h2 className="text-sm font-semibold text-ink">What-if controls</h2>
+              <span className="text-[10.5px] text-mute">chart updates instantly</span>
             </div>
             <Sliders a={a} defaults={defaults} ranges={ranges} onChange={onChange} onReset={() => setA(defaults)} />
           </div>
@@ -203,18 +203,14 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
           <div className="glow overflow-hidden rounded-2xl bg-panel">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
               <div>
-                <h2 className="text-[15px] font-semibold tracking-tight text-ink">Valuation football field</h2>
-                <p className="mt-0.5 text-xs text-mute">
-                  Bars: 25th-75th percentile · whiskers: min-max · white tick: median ·{' '}
-                  <span className="text-mark">dashed green: current {mode === 'price' ? 'share price' : 'EV'}</span> ·{' '}
-                  <span className="text-amber">dotted amber: composite</span>
-                </p>
+                <h2 className="text-[15px] font-semibold tracking-tight text-ink">What is {b.name} worth? Five ways to answer</h2>
+                <p className="mt-0.5 text-xs text-mute">The &ldquo;football field&rdquo; chart bankers use to put several valuations side by side.</p>
               </div>
               <div className="flex rounded-xl border border-line bg-bg/60 p-1 text-xs">
                 {(
                   [
                     ['price', 'Per share'],
-                    ['ev', 'Enterprise value'],
+                    ['ev', 'Whole company (EV)'],
                   ] as const
                 ).map(([k, label]) => (
                   <button key={k} type="button" onClick={() => setMode(k)} className={`rounded-lg px-3 py-1.5 font-medium transition ${mode === k ? 'bg-brand text-white' : 'text-sub hover:text-ink'}`}>
@@ -223,6 +219,15 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
                 ))}
               </div>
             </div>
+            <Verdict
+              name={b.name}
+              price={price(b.price)}
+              above={rows.filter((r) => r.median < current).length}
+              total={rows.length}
+              composite={price(run.compositePrice)}
+              upside={upside}
+            />
+            <ReadingKey priceMode={mode === 'price'} />
             <div className="px-1 py-3">
               <FootballField
                 rows={rows}
@@ -237,11 +242,11 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
               />
             </div>
             <div className="grid grid-cols-2 gap-px border-t border-line bg-line sm:grid-cols-4">
-              <Summary label="Composite implied price" value={price(run.compositePrice)} sub="median of methodology medians" accent />
-              <Summary label="vs current price" value={signedPct(upside)} sub={upside >= 0 ? 'implied upside' : 'market premium to intrinsic'} tone={upside >= 0 ? 'up' : 'down'} />
-              <Summary label="DCF median" value={price(evToPrice(b, run.ranges.find((r) => r.methodology === 'Discounted Cash Flow')!.median))} sub={`WACC ${pct(a.wacc, 2)} · g ${pct(a.terminalGrowth, 2)}`} />
+              <Summary label="Middle-of-the-road value" value={price(run.compositePrice)} sub="median of the five methods (amber line)" accent />
+              <Summary label="vs. today's price" value={signedPct(upside)} sub={upside >= 0 ? 'stock looks cheap vs. the methods' : 'stock looks expensive vs. the methods'} tone={upside >= 0 ? 'up' : 'down'} />
+              <Summary label="Cash-flow (DCF) value" value={price(evToPrice(b, run.ranges.find((r) => r.methodology === 'Discounted Cash Flow')!.median))} sub={`WACC ${pct(a.wacc, 2)} · g ${pct(a.terminalGrowth, 2)}`} />
               <Summary
-                label="LBO floor"
+                label="Buyout-fund floor"
                 value={run.lbo ? price(evToPrice(b, run.lbo.entryEv)) : '—'}
                 sub={run.lbo ? `${mult(run.lbo.entryMultiple)} entry · ${pct(a.lboTargetIrr, 0)} IRR` : 'not solvable'}
               />
@@ -284,6 +289,56 @@ function Summary({ label, value, sub, accent, tone }: { label: string; value: st
       <div className="text-[10.5px] uppercase tracking-wider text-mute">{label}</div>
       <div className={`num mt-1 text-xl font-semibold ${accent ? 'text-[#8DB4FF]' : tone === 'up' ? 'text-up' : tone === 'down' ? 'text-down' : 'text-ink'}`}>{value}</div>
       <div className="mt-0.5 text-[11px] text-mute">{sub}</div>
+    </div>
+  );
+}
+
+function Verdict({ name, price: px, above, total, composite, upside }: { name: string; price: string; above: number; total: number; composite: string; upside: number }) {
+  const rich = upside < -0.1;
+  const cheap = upside > 0.1;
+  return (
+    <div className={`mx-5 mt-4 rounded-xl border px-4 py-3 text-[13.5px] leading-relaxed ${rich ? 'border-down/30 bg-down/5' : cheap ? 'border-up/30 bg-up/5' : 'border-line bg-raised/40'}`}>
+      <span className="font-semibold text-ink">The short answer: </span>
+      <span className="text-sub">
+        {name} trades at <span className="num font-semibold text-ink">{px}</span>.{' '}
+        {above === total
+          ? 'All five methods put its value below that price'
+          : above === 0
+            ? 'All five methods put its value above that price'
+            : `${above} of ${total} methods put its value below that price`}
+        , and the middle-of-the-road estimate is <span className="num font-semibold text-ink">{composite}</span>
+        {rich ? ', so the stock looks expensive on these assumptions: the market expects more growth or profit than the model does.' : cheap ? ', so the stock looks cheap on these assumptions.' : ', roughly in line with the market.'}{' '}
+        Move the sliders on the left to test what you would have to believe to justify today&rsquo;s price.
+      </span>
+    </div>
+  );
+}
+
+function ReadingKey({ priceMode }: { priceMode: boolean }) {
+  const item = 'flex items-center gap-2';
+  return (
+    <div className="mx-5 mt-3 flex flex-wrap gap-x-5 gap-y-2 text-[11.5px] text-sub">
+      <span className={item}>
+        <span className="h-3 w-7 rounded bg-brand" /> Most likely range
+      </span>
+      <span className={item}>
+        <span className="relative h-3 w-9">
+          <span className="absolute left-0 right-0 top-1/2 h-0.5 -translate-y-1/2 bg-[#64748B]" />
+          <span className="absolute left-0 top-0 h-3 w-0.5 bg-[#64748B]" />
+          <span className="absolute right-0 top-0 h-3 w-0.5 bg-[#64748B]" />
+        </span>
+        Full range (low to high)
+      </span>
+      <span className={item}>
+        <span className="h-3 w-0.5 bg-white" /> Midpoint
+      </span>
+      <span className={item}>
+        <span className="h-3.5 border-l-2 border-dashed border-mark" /> Today&rsquo;s {priceMode ? 'stock price' : 'market value'}
+      </span>
+      <span className={item}>
+        <span className="h-3.5 border-l-2 border-dotted border-amber" /> Middle of all five
+      </span>
+      <span className="text-mute">Bars left of the green line say &ldquo;worth less than the price&rdquo;; bars to the right say &ldquo;worth more&rdquo;. Hover a bar for details, click it for the full math.</span>
     </div>
   );
 }

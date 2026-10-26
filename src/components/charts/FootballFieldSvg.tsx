@@ -62,11 +62,11 @@ const SHORT: Record<string, string> = {
 };
 
 const SUB: Record<string, string> = {
-  '52-Week Range': 'Trailing closing prices',
-  'Public Comps (EV/EBITDA)': 'Peer EV / LTM EBITDA',
-  'Precedent Transactions': 'Comps + control premium',
-  'Discounted Cash Flow': 'Unlevered FCF, 5-year',
-  'LBO Floor Valuation': 'Sponsor IRR hurdle',
+  '52-Week Range': 'Where the stock traded this year',
+  'Public Comps (EV/EBITDA)': 'Priced like similar companies',
+  'Precedent Transactions': 'What a takeover buyer might pay',
+  'Discounted Cash Flow': 'Value of its future cash',
+  'LBO Floor Valuation': 'What a buyout fund could pay',
 };
 
 export function FootballFieldSvg(p: FootballFieldSvgProps) {
