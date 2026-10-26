@@ -1,131 +1,130 @@
-# AlphaDesk
+# ValuationEngine AI
 
-Equity valuation portal: transparent three-statement forecasting, **three independent valuations per company**, and a data-quality dashboard that shows you where the numbers cannot be trusted.
+An SEC EDGAR valuation workbench. Type a ticker and the app pulls 10-K and 10-Q XBRL data straight from SEC EDGAR, runs five valuation methodologies concurrently, and plots them on an interactive **football field** you can stress-test with sliders. Every input traces back to its XBRL tag and SEC accession number.
 
-Built from three sources of prior art — a working S&P 500 forecast engine (factoralpha.ai / StockReco), the methodology discipline of Anthropic's [financial-services](https://github.com/anthropics/financial-services) skills, and the report structure of the Daloopa skill catalogue.
+**Stack:** Next.js 14 (App Router) · Tailwind · React SVG charts · Supabase (Postgres) · Vercel · SEC EDGAR REST API · Zod · Claude (Anthropic SDK)
 
 ---
 
-## Why this exists
+## What it does
 
-Most valuation tools produce one confident number. This one produces three, and tells you when they disagree.
-
-That matters more than it sounds. Run the engine across a broad universe and roughly **two in five companies** land more than 2x away from their market price, and **one in five** show the three methods disagreeing by over 35%. A portal that hides that is worse than no portal — it launders model error into false precision.
-
-Design consequences, all of which are visible in the product:
-
-| Decision | Why |
+| Feature | Where |
 |---|---|
-| Value every company three ways (FCFE, FCFF/WACC, residual income) | Agreement is evidence; divergence is a warning. Neither is visible from one method. |
-| Residual income preferred for financials | Banks have no meaningful CapEx, so a cash-flow DCF misprices them by construction. |
-| Balance-sheet gaps shown, never plugged | Vendor data frequently fails Assets = Liabilities + Equity. Silently patching it hides a data problem behind a valuation. |
-| Backtest surfaced next to the forecast | Re-run on data from three years ago, revenue error averages ~25%/yr on large caps. Users should see that. |
-| Reverse DCF alongside the DCF | "What must be true for today's price?" is usually more decision-useful than "what is it worth?". |
-| SBC deducted, share count linked to buybacks | Two common ways models flatter cash generation, both off by default. |
+| **Football field** for 52-week range, trading comps, precedents, DCF and LBO floor. Bars show the 25th–75th percentile, whiskers show min–max, plus a median tick, a dashed green current-price line and an amber composite line. Toggles between per-share and enterprise value. Hover a bar for the stats; click it to open its build. | Workbench |
+| **Real-time sensitivity sliders**: WACC (6–12%), perpetuity growth (1–4%), exit multiple (8–14x), revenue growth, EBIT margin, tax, control premium, LBO leverage, target IRR, cost of debt | Left rail |
+| **DCF build**: 5-year unlevered FCF table, revenue and FCF charts, WACC/CAPM build, EV-to-equity bridge (waterfall), and implied exit multiple / implied perpetuity growth cross-checks | DCF tab |
+| **Sensitivity heatmaps**: WACC × growth and WACC × exit multiple, shaded against the current price | Sensitivity tab |
+| **Comps & precedents**: peer EV/EBITDA built from each peer's own SEC filings plus a live price, a dot-strip chart, outliers flagged NM, and the control-premium build | Comps tab |
+| **LBO floor**: entry price solved by bisection for the target IRR, sources & uses, debt paydown chart, full cash-sweep schedule | LBO tab |
+| **SEC audit trail**: click any historical figure to see its XBRL tag, period, form, filing date and **accession ID**, with links to the filing on EDGAR | SEC Financials tab |
+| **AI analyst memo**: Claude writes the narrative under a strict Zod schema and may only cite figures from the engine. A verifier checks every $, % and x in the prose against the engine and flags anything unmatched. | AI Memo tab |
+| **Pitchbook tear sheet**: two light-theme 16:9 pages (football field, summary table, market data, DCF, sensitivity, LBO, sources footnote). Print or save as PDF. | "Export pitchbook tear sheet" |
+| **Shareable scenarios**: slider state lives in the URL | "Copy scenario link" |
+| **REST API**: `GET /api/valuation/AAPL?w=0.09&g=0.03` returns the PRD 4.2 `ValuationOutputSchema` JSON, Zod-validated | API |
 
 ---
 
-## Architecture
+## How the numbers are built
 
-```
-src/lib/engine/         Pure, isomorphic valuation engine — no I/O, no framework
-  corrections.ts        De-duplicate vendor rows; rebuild "other" buckets as residuals
-  forecast.ts           Sequential IS -> CF -> BS build (year t uses year t-1's own closings)
-  valuation.ts          FCFE / FCFF-WACC / residual income + sanity flags
-  analytics.ts          Sensitivity, Monte Carlo, reverse DCF, backtest, sector medians
-src/lib/providers/      FMP adapter (live), Daloopa adapter (stub — see below)
-src/lib/pipeline/       Ingest -> audit -> persist -> value
-src/lib/deliverables/   DCF report, tearsheet, CSV (zero-dep) and xlsx (exceljs)
-src/app/                Next.js App Router: coverage, ticker workspace, audit dashboard, API
-supabase/migrations/    Schema + RLS
-tests/                  56 tests, no dependencies, run on plain Node
-```
+**Data (`src/lib/sec/`)**
+- `data.sec.gov/api/xbrl/companyfacts/CIK##########.json` is fetched with a custom User-Agent, rate-limited to stay under SEC's 10 requests/second.
+- The annual series comes from 10-K facts with a ~12-month duration. When a later 10-K restates a year, the latest filing wins. Tag switches are handled (e.g. `Revenues` → `RevenueFromContractWithCustomerExcludingAssessedTax`).
+- **LTM** = latest FY + current-year YTD − prior-year YTD, using the same tag from 10-Q filings.
+- The **latest balance sheet** comes from the most recent 10-K or 10-Q. Total debt = long-term debt (current + non-current) + commercial paper or short-term borrowings. Share count comes from the cover page (`dei:EntityCommonStockSharesOutstanding`).
+- **EBIT** is `OperatingIncomeLoss`, or pre-tax income + interest expense when a company (like Disney) doesn't tag it. Restructuring and impairment are added back to give Adj. EBIT.
+- **Price, 52-week distribution and beta** come from the Yahoo Finance chart API. Beta is a 2-year weekly regression vs the S&P 500, Blume-adjusted. FMP is used instead if `FMP_API_KEY` is set.
 
-**The engine is isomorphic on purpose.** The same module computes the valuation during ingestion (server) and on every keystroke in the scenario builder (browser). Stored numbers and on-screen numbers cannot drift apart, because there is only one implementation.
+**Engine (`src/lib/engine/`)**: pure TypeScript with no I/O. The browser runs the same code on every slider move and the server runs it for the API and tear sheet, so the two can't drift apart.
+
+| Method | Mechanics | Range (min / 25th / median / 75th / max) |
+|---|---|---|
+| 52-week | EV = price × shares + net debt | Distribution of trailing daily closes |
+| Trading comps | Peer EV / LTM EBITDA × target LTM EBITDA | Peer multiple percentiles. Peers more than 3x from the median are excluded as NM. |
+| Precedents | Comps multiple × (1 + control premium) | Peer 25th/median/75th × premium of ±7.5% around the slider (default 15–30%) |
+| DCF | FCFF = EBIT(1−t) + D&A − CapEx − ΔNWC. WACC = E/V·Ke + D/V·Kd(1−t), Ke = Rf + β(ERP). TV by Gordon growth **and** exit multiple. | WACC ±1% × (growth ±0.5% and exit ±1x), 30 cases |
+| LBO floor | Entry multiple solved for the target IRR (default 20%), 5-year hold, 100% cash sweep, 2% fees, debt ≤ 75% of price | Leverage ±0.5x × exit multiple ±1x, 9 solves |
+
+Defaults: risk-free 4.25%, ERP 5.0% (Kroll recommended U.S. ERP), terminal growth 2.5%, exit multiple = peer median, revenue growth = blend of last-year and 3-year CAGR, margins = latest fiscal year.
 
 ---
 
-## Setup (about 15 minutes)
+## Setup (same flow as the multi-school app: GitHub → Supabase → Vercel)
 
-### 1. Supabase
-
-```bash
-npx supabase link --project-ref YOUR_PROJECT_REF
-npm run db:push          # applies supabase/migrations
-```
-
-Or paste `supabase/migrations/0001_init.sql` then `0002_rls.sql` into the SQL editor.
-
-RLS is read-only for the anon key; every write goes through the service role. The browser bundle cannot mutate financial data even if the anon key leaks — and it will.
-
-### 2. Environment
-
-```bash
-cp .env.example .env.local
-```
-
-Fill in the Supabase URL, anon key, service-role key, and `FMP_API_KEY`. Set `INGEST_UNIVERSE` to a comma list or `SP500`.
-
-### 3. Ingest
+### 1. Run locally (2 minutes, no accounts needed)
 
 ```bash
 npm install
-npm run ingest                 # uses INGEST_UNIVERSE
-npm run ingest -- AAPL,MSFT,JPM 10
+cp .env.example .env.local      # set SEC_USER_AGENT to your name + email
+npm run dev                     # http://localhost:3000
 ```
 
-Each run fetches, normalises, corrects, audits, stores, values, and records every finding.
+With no keys at all, the app works fully in live mode: SEC EDGAR and Yahoo prices need no key, and the AI memo falls back to a deterministic template. To demo with no internet, set `DATA_MODE=snapshot`. That serves six bundled tickers (AAPL, NVDA, DIS, MSFT, COST, KO) from an approximate snapshot, clearly labelled.
 
-### 4. Run
+### 2. Supabase (optional: persistent cache and the "recently valued" feed)
+
+1. Create a project at supabase.com.
+2. In the SQL editor, run `supabase/migrations/0001_valuation_engine.sql`.
+3. Copy the **Project URL** and the **service_role key** (Settings → API).
+
+All database access is server-side with the service-role key. RLS is enabled with no policies, so the public anon key can do nothing.
+
+### 3. Vercel
+
+1. Import this GitHub repo at vercel.com/new (framework: Next.js; the defaults are fine).
+2. Add environment variables:
+
+| Variable | Required | Notes |
+|---|---|---|
+| `SEC_USER_AGENT` | **yes** | e.g. `ValuationEngine AI your-name@gmail.com` (SEC fair-access policy) |
+| `ANTHROPIC_API_KEY` | for the AI memo | from console.anthropic.com |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | optional | from step 2 |
+| `FMP_API_KEY` | optional | alternative price source |
+
+3. Deploy. The first load of each ticker downloads its full XBRL history (a few MB per company, plus peers) and takes about 5–15 seconds. After that it's served from cache.
+
+---
+
+## Demo script (about 5 minutes)
+
+1. **Home → NVDA.** The loading screen walks through the pipeline. Point out the "Live SEC EDGAR" badge, the CIK, and the LTM label (e.g. "LTM Jul-26"), which shows the 10-Q YTD math.
+2. **Football field.** Hover each bar for its stats. Toggle **Per share / Enterprise value**. Ask: where does the market price sit versus intrinsic value, and why does the LBO floor sit so low for a high-multiple stock?
+3. **Drag WACC from 9% to 12%** and watch the DCF bar slide left. Drag the **exit multiple** and **control premium**. Then open **Sensitivity** to see the same story as a heatmap.
+4. **DCF tab.** Walk the FCFF build, the WACC/CAPM card, and the EV → equity bridge. Flip Perpetuity ↔ Exit multiple and compare the implied exit multiple against the peer median (the classic cross-check).
+5. **LBO tab.** Ask what entry multiple a sponsor can pay at 5.5x leverage for a 20% IRR. Move the target IRR slider.
+6. **SEC Financials → click Revenue.** The audit modal shows the XBRL tag, the period, and the **accession number**, which links to the actual filing on EDGAR.
+7. **AI Memo → Generate.** Claude writes the summary, and the guardrail panel shows something like "34/34 figures traced to engine output".
+8. **Export pitchbook tear sheet → Print → Save as PDF.**
+9. Try **DIS**. Disney doesn't tag operating income, so EBIT is rebuilt from pre-tax income + interest. The warning banner says so, and the audit modal shows both facts.
+
+---
+
+## Project layout
+
+```
+src/lib/sec/          SEC client (rate limit, UA), XBRL parser, ticker→CIK + peer sets
+src/lib/market/       Price, 52-week distribution, regression beta
+src/lib/engine/       Pure valuation engine: model (WACC, DCF), lbo, valuation, stats, params
+src/lib/data/         Dataset orchestration + caching (memory, Supabase), offline snapshot
+src/lib/ai/           Fact sheet, numeric verifier, Claude memo with Zod structured output
+src/lib/schema.ts     PRD 4.2 ValuationOutputSchema
+src/components/       Football field + charts (hand-built SVG), workbench tabs, UI kit
+src/app/              Home, /t/[ticker] workbench, /t/[ticker]/tearsheet, API routes
+supabase/migrations/  company_cache, valuation_runs
+tests/                Engine + XBRL parser tests (node --test, no network)
+```
 
 ```bash
-npm run dev
+npm test          # 15 tests: DCF/WACC identities, LBO solver, ranges, Zod contract, XBRL parser, memo verifier
+npm run typecheck
+npm run build
 ```
 
-### 5. Deploy
+## Known limits
 
-Push to GitHub, import in Vercel, add the same env vars. `vercel.json` schedules ingestion on weekday mornings; the endpoint requires `CRON_SECRET` as a bearer token, or anyone can burn your provider quota.
+- **Financials (banks, insurers):** EV/EBITDA and unlevered DCF aren't meaningful for them. The app warns but still runs.
+- **Foreign private issuers** (20-F filers such as TSM or SONY) report in IFRS and aren't supported.
+- **Precedent transactions** are modelled as trading multiples plus a control premium (per the PRD), not as a database of actual deals.
+- **The offline snapshot** is rounded from 10-K filings. Its market data and peer multiples are approximate and illustrative, and it never shows an accession number. Live mode replaces all of it.
+- **Not built yet:** pgvector 10-K text search (PRD 3, Phase 2). The schema has room for it.
 
----
-
-## Verification
-
-```bash
-npm test              # 56 tests, no network, no database, no API keys
-npm run verify:engine # prints the triangulated valuation for the bundled fixtures
-```
-
-The fixtures are **raw vendor rows** — duplicates, gaps and all — so the tests exercise the whole pipeline: de-duplication, residual correction, forecast, and all three valuation routes. Expected values were captured from the reference implementation this engine was ported from, and the port reproduces them to within 1e-9 relative error on every line: projected revenue, net income, operating cash flow, cost of equity, WACC, enterprise value, and all three per-share values.
-
-Structural cases are pinned as tests, not just numbers:
-
-- **JPM** — the cash-flow DCF must fail (no valid terminal value) and residual income must carry the valuation
-- **XOM** — cyclicality must be auto-detected and switch the margin base to a full-cycle average
-- **AAPL** — a value this far below market must raise the extreme-result flag
-- Projected balance sheets must **expose** their imbalance rather than plug it
-
-`npm test` runs on plain Node via `--experimental-strip-types`; no build step, no test framework, nothing to install.
-
----
-
-## What is deliberately not finished
-
-Honesty about scope, since these are the things you would otherwise discover yourself:
-
-1. **`npm install` was never run.** The sandbox this was built in has no npm registry access, so `next build`, `tsc --noEmit` and the exceljs-backed xlsx export are **unverified**. Everything that could be verified without dependencies — the engine, the pipeline, the audit logic, three of the four deliverables — is covered by the 56 passing tests. Expect to fix a type error or two on first build.
-2. **The Daloopa adapter is a stub that throws a clear error.** Its response schema could not be verified without an authorised credential, and guessing at a vendor schema is exactly how silently wrong numbers enter a valuation. `src/lib/providers/daloopa.ts` documents where to implement it, including preserving `fundamental_id` per datapoint so citations survive into the deliverables.
-3. **No auth.** Single-tenant internal tool. Add Supabase Auth and tighten the RLS policies before exposing it.
-4. **The projected balance sheet does not tie.** Each line rolls forward independently with no balancing plug, so the residual grows to a few percent of assets by the terminal year. It is reported on every projected column rather than hidden. A production model would balance with a cash sweep or revolver; that is a deliberate next step, not an oversight.
-5. **No segment or KPI data.** Consolidated statements only, so the bottoms-up revenue build (units x ASP, subscribers x ARPU) that a good analyst prefers is not possible. The top-down build is the weaker method and the reports say so.
-
----
-
-## Extending
-
-- **New provider** — implement `DataProvider` in `src/lib/providers/`, register it in `getProvider()`. The engine never sees vendor shapes.
-- **New deliverable** — add a generator in `src/lib/deliverables/` and a case in the deliverables route. Keep it dependency-free if you want it testable here.
-- **New sanity check** — add it to `buildFlags()` in `valuation.ts` (model-level) or `auditCompany()` in `pipeline/ingest.ts` (data-level). Both feed the dashboard automatically.
-
----
-
-Analyst work product for review by a qualified professional. Not investment advice, and no recommendation is made or implied.
+For education and analysis. Not investment advice.

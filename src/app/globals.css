@@ -2,25 +2,149 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
-
-body {
-  background: theme('colors.canvas');
-  color: theme('colors.ink');
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+:root {
+  color-scheme: dark;
+  --bg: 7 10 15;
+  --panel: 13 18 26;
+  --raised: 20 27 38;
+  --line: 35 44 58;
+  --ink: 230 234 240;
+  --sub: 163 173 189;
+  --mute: 107 118 137;
+  --brand: 37 99 235;
+  --mark: 16 185 129;
+  --up: 34 197 94;
+  --down: 239 68 68;
+  --amber: 245 158 11;
 }
 
-@layer components {
-  .card { @apply bg-surface border border-rule rounded-lg p-4; }
-  .stat-k { @apply text-[10.5px] uppercase tracking-wider text-muted; }
-  .stat-v { @apply font-mono text-xl font-bold tabular-nums; }
-  .tbl { @apply w-max min-w-full text-[12.8px] tabular-nums; }
-  .tbl th { @apply sticky top-0 bg-surface z-10 px-3 py-2 text-right font-semibold text-[11.5px] text-muted border-b-2 border-rule whitespace-nowrap; }
-  .tbl td { @apply px-3 py-1 border-b border-rule whitespace-nowrap; }
-  .tbl td.num { @apply text-right font-mono text-[12.3px]; }
-  .tbl td.li, .tbl th.li { @apply sticky left-0 bg-surface text-left border-r border-rule z-20; }
-  .tbl tr.total td { @apply font-bold border-t border-ink/40; }
-  .proj { background: rgba(14,110,94,.065); }
-  .scroller { @apply overflow-x-auto border border-rule rounded-lg bg-surface; }
-  .chip { @apply inline-block text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded text-white; }
+.theme-light {
+  color-scheme: light;
+  --bg: 255 255 255;
+  --panel: 247 248 250;
+  --raised: 239 242 246;
+  --line: 223 228 235;
+  --ink: 11 18 32;
+  --sub: 63 74 90;
+  --mute: 107 118 137;
+  --brand: 37 99 235;
+  --mark: 5 150 105;
+  --up: 22 163 74;
+  --down: 220 38 38;
+  --amber: 217 119 6;
+}
+
+html,
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--ink));
+}
+
+body {
+  font-feature-settings: 'ss01', 'cv11';
+}
+
+.num {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgb(var(--line) / 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--line) / 0.35) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 0%, black 30%, transparent 75%);
+}
+
+.glow {
+  box-shadow: 0 0 0 1px rgb(var(--line)), 0 24px 80px -24px rgb(var(--brand) / 0.35);
+}
+
+/* Range sliders */
+input[type='range'].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range'].slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(to right, rgb(var(--brand)) var(--fill, 50%), rgb(var(--line)) var(--fill, 50%));
+}
+input[type='range'].slider::-moz-range-track {
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(to right, rgb(var(--brand)) var(--fill, 50%), rgb(var(--line)) var(--fill, 50%));
+}
+input[type='range'].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  margin-top: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgb(var(--ink));
+  border: 3px solid rgb(var(--brand));
+  box-shadow: 0 0 0 4px rgb(var(--brand) / 0.18);
+}
+input[type='range'].slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgb(var(--ink));
+  border: 3px solid rgb(var(--brand));
+}
+input[type='range'].slider:focus-visible {
+  outline: none;
+}
+input[type='range'].slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 6px rgb(var(--brand) / 0.4);
+}
+
+/* Football field bars animate between slider states. */
+.ff-anim rect,
+.ff-anim line {
+  transition: x 320ms cubic-bezier(.2, .8, .2, 1), width 320ms cubic-bezier(.2, .8, .2, 1), x1 320ms cubic-bezier(.2, .8, .2, 1), x2 320ms cubic-bezier(.2, .8, .2, 1);
+}
+
+@media print {
+  @page {
+    size: 13.333in 7.5in;
+    margin: 0;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .page {
+    break-after: page;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+  html,
+  body {
+    background: white !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
 }

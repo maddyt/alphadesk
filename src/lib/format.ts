@@ -1,26 +1,44 @@
-/** Presentation helpers. Money is stored in units and displayed in millions. */
-export const MM = 1e6;
+export function money(x: number, digits = 1): string {
+  if (!Number.isFinite(x)) return '—';
+  const s = x < 0 ? '-' : '';
+  const a = Math.abs(x);
+  if (a >= 1e12) return `${s}$${(a / 1e12).toFixed(digits + 1)}T`;
+  if (a >= 1e9) return `${s}$${(a / 1e9).toFixed(digits)}B`;
+  if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(digits)}M`;
+  return `${s}$${a.toFixed(0)}`;
+}
 
-export function money(v: number | null | undefined, dp = 0): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
-  const m = v / MM;
-  const s = Math.abs(m).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
-  return m < 0 ? `(${s})` : s;
+/** USD millions with thousands separators, the way a model's tables print. */
+export function mm(x: number | undefined): string {
+  if (x === undefined || !Number.isFinite(x)) return '—';
+  const v = x / 1e6;
+  const body = Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  return v < 0 ? `(${body})` : body;
 }
-export function usd(v: number | null | undefined): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
-  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export function price(x: number): string {
+  if (!Number.isFinite(x)) return '—';
+  return `${x < 0 ? '-' : ''}$${Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
-export function pct(v: number | null | undefined, dp = 1): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
-  return `${(v * 100).toFixed(dp)}%`;
+
+export function pct(x: number, digits = 1): string {
+  return Number.isFinite(x) ? `${(x * 100).toFixed(digits)}%` : '—';
 }
-export function mult(v: number | null | undefined): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
-  return `${v.toFixed(1)}x`;
+
+export function signedPct(x: number, digits = 1): string {
+  return Number.isFinite(x) ? `${x >= 0 ? '+' : ''}${(x * 100).toFixed(digits)}%` : '—';
 }
-export function shares(v: number | null | undefined): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
-  return (v / MM).toLocaleString('en-US', { maximumFractionDigits: 0 });
+
+export function mult(x: number, digits = 1): string {
+  return Number.isFinite(x) ? `${x.toFixed(digits)}x` : '—';
 }
-export const negative = (v: number | null | undefined): boolean => v !== null && v !== undefined && v < 0;
+
+export function shares(x: number): string {
+  return `${(x / 1e6).toLocaleString('en-US', { maximumFractionDigits: 1 })}M`;
+}
+
+export function date(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso.length === 10 ? iso + 'T00:00:00Z' : iso);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
