@@ -27,7 +27,7 @@ export default async function DealPage({ params, searchParams }: Props) {
     <>
       <Nav />
       <main>
-        <DealWorkbench A={d.A} T={d.T} defaults={d.defaults} initial={d.a} warnings={d.warnings} />
+        <DealWorkbench A={d.A} T={d.T} defaults={d.defaults} initial={d.a} warnings={d.warnings} macro={d.macro} />
       </main>
     </>
   );

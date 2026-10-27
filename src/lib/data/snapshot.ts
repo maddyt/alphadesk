@@ -22,7 +22,8 @@ interface SnapSpec {
   /** Latest fiscal year, USD millions (shares in millions). */
   latest: Partial<Record<LineKey, number>>;
   market: { price: number; low52: number; high52: number; beta: number };
-  peers: [string, string, number][];
+  /** [ticker, name, EV/EBITDA, EV/Revenue], illustrative. */
+  peers: [string, string, number, number][];
   peerBasis: string;
 }
 
@@ -59,7 +60,7 @@ const SPECS: Record<string, SnapSpec> = {
       cash: 29943, securities: 35228, debt: 106629, ar: 33410, inventory: 7286, ap: 68960, sharesOutstanding: 15116,
     },
     market: { price: 222.13, low52: 165.0, high52: 259.02, beta: 1.2 },
-    peers: [['MSFT', 'Microsoft', 22.0], ['GOOGL', 'Alphabet', 14.0], ['META', 'Meta Platforms', 15.5], ['AMZN', 'Amazon', 15.0], ['DELL', 'Dell Technologies', 9.5], ['HPQ', 'HP Inc.', 6.8]],
+    peers: [['MSFT', 'Microsoft', 22.0, 12.5], ['GOOGL', 'Alphabet', 14.0, 6.0], ['META', 'Meta Platforms', 15.5, 8.5], ['AMZN', 'Amazon', 15.0, 3.4], ['DELL', 'Dell Technologies', 9.5, 0.9], ['HPQ', 'HP Inc.', 6.8, 0.7]],
     peerBasis: 'Mega-cap technology',
   },
   NVDA: {
@@ -75,7 +76,7 @@ const SPECS: Record<string, SnapSpec> = {
       cash: 8589, securities: 34621, debt: 8463, ar: 23065, inventory: 10080, ap: 6310, sharesOutstanding: 24400,
     },
     market: { price: 108.38, low52: 76.2, high52: 149.43, beta: 1.7 },
-    peers: [['AMD', 'Advanced Micro Devices', 27.0], ['AVGO', 'Broadcom', 30.0], ['QCOM', 'Qualcomm', 12.0], ['MRVL', 'Marvell Technology', 35.0], ['MU', 'Micron Technology', 8.5], ['TXN', 'Texas Instruments', 22.0]],
+    peers: [['AMD', 'Advanced Micro Devices', 27.0, 7.5], ['AVGO', 'Broadcom', 30.0, 17.0], ['QCOM', 'Qualcomm', 12.0, 4.3], ['MRVL', 'Marvell Technology', 35.0, 11.0], ['MU', 'Micron Technology', 8.5, 3.5], ['TXN', 'Texas Instruments', 22.0, 10.0]],
     peerBasis: 'Semiconductors',
   },
   DIS: {
@@ -92,7 +93,7 @@ const SPECS: Record<string, SnapSpec> = {
       cash: 6002, securities: 0, debt: 45815, ar: 12729, inventory: 2022, ap: 21070, sharesOutstanding: 1810,
     },
     market: { price: 98.7, low52: 85.6, high52: 122.0, beta: 1.4 },
-    peers: [['CMCSA', 'Comcast', 6.0], ['WBD', 'Warner Bros. Discovery', 6.8], ['FOXA', 'Fox Corporation', 8.0], ['NFLX', 'Netflix', 33.0]],
+    peers: [['CMCSA', 'Comcast', 6.0, 2.0], ['WBD', 'Warner Bros. Discovery', 6.8, 1.6], ['FOXA', 'Fox Corporation', 8.0, 1.8], ['NFLX', 'Netflix', 33.0, 10.0]],
     peerBasis: 'Media & entertainment',
   },
   MSFT: {
@@ -108,7 +109,7 @@ const SPECS: Record<string, SnapSpec> = {
       cash: 18315, securities: 57228, debt: 44937, ar: 56924, inventory: 1246, ap: 21996, sharesOutstanding: 7434,
     },
     market: { price: 375.39, low52: 367.24, high52: 467.56, beta: 0.9 },
-    peers: [['AAPL', 'Apple', 23.0], ['GOOGL', 'Alphabet', 14.0], ['AMZN', 'Amazon', 15.0], ['ORCL', 'Oracle', 22.0], ['CRM', 'Salesforce', 19.0], ['ADBE', 'Adobe', 19.5]],
+    peers: [['AAPL', 'Apple', 23.0, 8.5], ['GOOGL', 'Alphabet', 14.0, 6.0], ['AMZN', 'Amazon', 15.0, 3.4], ['ORCL', 'Oracle', 22.0, 9.0], ['CRM', 'Salesforce', 19.0, 7.0], ['ADBE', 'Adobe', 19.5, 8.0]],
     peerBasis: 'Mega-cap technology',
   },
   COST: {
@@ -124,7 +125,7 @@ const SPECS: Record<string, SnapSpec> = {
       cash: 9906, securities: 1238, debt: 5897, ar: 2721, inventory: 18647, ap: 19421, sharesOutstanding: 443.6,
     },
     market: { price: 945.78, low52: 697.0, high52: 1076.0, beta: 0.8 },
-    peers: [['WMT', 'Walmart', 18.0], ['TGT', 'Target', 8.0], ['BJ', "BJ's Wholesale", 13.0], ['DG', 'Dollar General', 10.0], ['KR', 'Kroger', 7.0]],
+    peers: [['WMT', 'Walmart', 18.0, 1.0], ['TGT', 'Target', 8.0, 0.6], ['BJ', "BJ's Wholesale", 13.0, 0.6], ['DG', 'Dollar General', 10.0, 0.7], ['KR', 'Kroger', 7.0, 0.4]],
     peerBasis: 'Mass & warehouse retail',
   },
   KO: {
@@ -140,7 +141,7 @@ const SPECS: Record<string, SnapSpec> = {
       cash: 10828, securities: 1553, debt: 48083, ar: 3569, inventory: 4728, ap: 5468, sharesOutstanding: 4308,
     },
     market: { price: 71.62, low52: 57.9, high52: 73.0, beta: 0.55 },
-    peers: [['PEP', 'PepsiCo', 13.5], ['MDLZ', 'Mondelez', 15.0], ['KDP', 'Keurig Dr Pepper', 14.0], ['MNST', 'Monster Beverage', 25.0], ['KHC', 'Kraft Heinz', 8.5]],
+    peers: [['PEP', 'PepsiCo', 13.5, 2.6], ['MDLZ', 'Mondelez', 15.0, 3.0], ['KDP', 'Keurig Dr Pepper', 14.0, 3.9], ['MNST', 'Monster Beverage', 25.0, 7.5], ['KHC', 'Kraft Heinz', 8.5, 2.4]],
     peerBasis: 'Beverages & packaged food',
   },
   EA: {
@@ -156,7 +157,7 @@ const SPECS: Record<string, SnapSpec> = {
       cash: 2136, securities: 112, debt: 1882, ar: 637, inventory: 0, ap: 82, sharesOutstanding: 251,
     },
     market: { price: 144.72, low52: 124.9, high52: 168.5, beta: 0.75 },
-    peers: [['TTWO', 'Take-Two Interactive', 30.0], ['RBLX', 'Roblox', 60.0], ['NTES', 'NetEase', 11.0], ['MSFT', 'Microsoft', 22.0]],
+    peers: [['TTWO', 'Take-Two Interactive', 30.0, 6.5], ['RBLX', 'Roblox', 60.0, 11.0], ['NTES', 'NetEase', 11.0, 3.5], ['MSFT', 'Microsoft', 22.0, 12.5]],
     peerBasis: 'Interactive entertainment',
   },
 };
@@ -247,7 +248,7 @@ export function snapshotPeers(ticker: string): { peers: PeerComp[]; basis: strin
   const s = SPECS[ticker];
   if (!s) return null;
   return {
-    peers: s.peers.map(([t, name, m]) => ({ ticker: t, name, evEbitda: m, ev: null, ebitda: null, source: 'snapshot' })),
+    peers: s.peers.map(([t, name, m, r]) => ({ ticker: t, name, evEbitda: m, evRevenue: r, ev: null, ebitda: null, source: 'snapshot' })),
     basis: `${s.peerBasis} (illustrative snapshot multiples)`,
   };
 }

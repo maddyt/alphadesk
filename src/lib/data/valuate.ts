@@ -9,7 +9,7 @@ import { getDataset } from './dataset.ts';
 export async function valuate(ticker: string, overrides: Partial<Assumptions> = {}) {
   const ds = await getDataset(ticker);
   const b = buildBaseInputs(ds);
-  const defaults = defaultAssumptions(b);
+  const defaults = defaultAssumptions(b, ds.macro?.tenYear);
   const a = resolveAssumptions(defaults, sliderRanges(defaults), overrides);
   const run = runValuation(b, a);
   const wacc = waccBuild(b, a.riskFree, a.erp, a.taxRate);

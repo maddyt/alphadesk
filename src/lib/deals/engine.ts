@@ -18,6 +18,8 @@ export interface DealCompany {
   priceSource: string;
   priceAsOf: string;
   shares: number;
+  /** Diluted weighted-average shares (PRD v2), the EPS denominator; falls back to shares outstanding. */
+  dilutedShares: number;
   marketCap: number;
   netIncome: number;
   revenue: number;
@@ -29,7 +31,7 @@ export interface DealCompany {
   eps: number;
   taxRate: number;
   /** XBRL provenance for the audit trail, keyed by line. */
-  audit: Record<'netIncome' | 'revenue' | 'ebitda' | 'cash' | 'debt' | 'shares', LineItem | undefined>;
+  audit: Record<'netIncome' | 'revenue' | 'ebitda' | 'cash' | 'debt' | 'shares' | 'dilutedShares', LineItem | undefined>;
 }
 
 const val = (it: LineItem | undefined) => it?.value;
@@ -51,6 +53,7 @@ export function toDealCompany(c: CompanyFinancials, m: MarketData): DealCompany 
   const pretax = val(last.pretax);
   const tax = val(last.taxExpense);
   const marketCap = m.price * shares;
+  const dilutedShares = val(ltm.sharesDiluted) ?? val(last.sharesDiluted) ?? shares;
   // EBITDA's audit line combines its EBIT and D&A facts.
   const ebitdaFacts: Fact[] = [...(ltm.ebit?.facts ?? []), ...(ltm.impairment?.facts ?? []), ...(ltm.da?.facts ?? [])];
   return {
@@ -65,6 +68,7 @@ export function toDealCompany(c: CompanyFinancials, m: MarketData): DealCompany 
     priceSource: m.source,
     priceAsOf: m.asOf,
     shares,
+    dilutedShares,
     marketCap,
     netIncome,
     revenue,
@@ -73,7 +77,7 @@ export function toDealCompany(c: CompanyFinancials, m: MarketData): DealCompany 
     debt,
     netDebt: debt - cash,
     enterpriseValue: marketCap + debt - cash,
-    eps: netIncome / shares,
+    eps: netIncome / dilutedShares,
     taxRate: pretax && tax !== undefined && pretax > 0 ? clamp(tax / pretax, 0.12, 0.28) : 0.21,
     audit: {
       netIncome: ltm.netIncome ?? last.netIncome,
@@ -82,6 +86,7 @@ export function toDealCompany(c: CompanyFinancials, m: MarketData): DealCompany 
       cash: bal.cash,
       debt: bal.debt,
       shares: bal.sharesOutstanding ?? last.sharesDiluted,
+      dilutedShares: ltm.sharesDiluted ?? last.sharesDiluted,
     },
   };
 }
@@ -95,22 +100,36 @@ export interface DealAssumptions {
   debtRate: number; // r_d on new acquisition debt
   cashRate: number; // r_c interest forgone on cash used
   taxRate: number;
+  /** One-off costs funded at close, e.g. change-of-control payouts from the target's proxy (PRD v2 appendix C). */
+  transactionCosts: number;
 }
 
-export function defaultDealAssumptions(A: DealCompany, T: DealCompany): DealAssumptions {
+/** Credit spread over Treasuries by pro-forma leverage bucket (investment grade -> high yield). */
+export function creditSpread(leverage: number): number {
+  if (!Number.isFinite(leverage) || leverage > 4) return 0.035;
+  if (leverage > 2.5) return 0.02;
+  return 0.0125;
+}
+
+export function defaultDealAssumptions(A: DealCompany, T: DealCompany, tenYear?: number): DealAssumptions {
   const price = T.marketCap * 1.3;
   // Fund with stock first; use cash only up to ~half of the acquirer's balance sheet cash.
   const cashPct = clamp(Math.floor(((A.cash * 0.5) / price) * 20) / 20, 0, 0.3);
   const debtPct = 0.3;
+  const synergies = roundSynergy(Math.max(0, T.revenue * 0.03));
+  // PRD v2 appendix E: new-debt rate = live 10-year Treasury + a spread for the pro-forma leverage.
+  const lev = (A.debt + T.debt + price * debtPct) / (A.ebitda + T.ebitda + synergies);
+  const debtRate = tenYear !== undefined ? Math.round((tenYear + creditSpread(lev)) * 400) / 400 : 0.06;
   return {
     premium: 0.3,
     cashPct,
     debtPct,
     stockPct: +(1 - cashPct - debtPct).toFixed(4),
-    synergies: roundSynergy(Math.max(0, T.revenue * 0.03)),
-    debtRate: 0.06,
-    cashRate: 0.04,
+    synergies,
+    debtRate,
+    cashRate: tenYear !== undefined ? Math.round(Math.max(0, tenYear - 0.005) * 400) / 400 : 0.04,
     taxRate: +A.taxRate.toFixed(3),
+    transactionCosts: 0,
   };
 }
 
@@ -141,6 +160,7 @@ export function setMix(a: DealAssumptions, key: 'cashPct' | 'stockPct' | 'debtPc
 export interface DealResult {
   offerPrice: number; // per share
   equityPurchasePrice: number; // P_E
+  totalUses: number; // P_E + transaction costs
   enterprisePurchasePrice: number; // P_E + target net debt
   newDebt: number;
   cashUsed: number;
@@ -170,17 +190,18 @@ export interface DealResult {
 export function runDeal(A: DealCompany, T: DealCompany, a: DealAssumptions): DealResult {
   const t = a.taxRate;
   const PE = T.marketCap * (1 + a.premium);
-  const newDebt = PE * a.debtPct;
-  const cashUsed = PE * a.cashPct;
-  const stockIssued = PE * a.stockPct;
+  const uses = PE + a.transactionCosts; // costs are funded with the same mix as the price
+  const newDebt = uses * a.debtPct;
+  const cashUsed = uses * a.cashPct;
+  const stockIssued = uses * a.stockPct;
   const preTaxInterest = newDebt * a.debtRate;
   const afterTaxInterest = preTaxInterest * (1 - t);
   const foregoneInterest = cashUsed * a.cashRate * (1 - t);
   const afterTaxSynergies = a.synergies * (1 - t);
   const proFormaNetIncome = A.netIncome + T.netIncome + afterTaxSynergies - afterTaxInterest - foregoneInterest;
   const newShares = stockIssued / A.price;
-  const proFormaShares = A.shares + newShares;
-  const standaloneEps = A.netIncome / A.shares;
+  const proFormaShares = A.dilutedShares + newShares;
+  const standaloneEps = A.netIncome / A.dilutedShares;
   const proFormaEps = proFormaNetIncome / proFormaShares;
   const accretion = (proFormaEps - standaloneEps) / Math.abs(standaloneEps);
 
@@ -206,6 +227,7 @@ export function runDeal(A: DealCompany, T: DealCompany, a: DealAssumptions): Dea
   return {
     offerPrice: T.price * (1 + a.premium),
     equityPurchasePrice: PE,
+    totalUses: uses,
     enterprisePurchasePrice,
     newDebt,
     cashUsed,
@@ -223,7 +245,7 @@ export function runDeal(A: DealCompany, T: DealCompany, a: DealAssumptions): Dea
     epsChange: proFormaEps - standaloneEps,
     breakevenSynergies,
     maxPremium,
-    ownershipAcquirer: A.shares / proFormaShares,
+    ownershipAcquirer: A.dilutedShares / proFormaShares,
     ownershipTarget: newShares / proFormaShares,
     contributionAcquirer: A.netIncome / (A.netIncome + T.netIncome),
     multiples: {
@@ -245,10 +267,10 @@ export function runDeal(A: DealCompany, T: DealCompany, a: DealAssumptions): Dea
 /** Accretion only; used by the solvers and sensitivity grids. */
 function runDealCore(A: DealCompany, T: DealCompany, a: DealAssumptions): number {
   const t = a.taxRate;
-  const PE = T.marketCap * (1 + a.premium);
-  const ni = A.netIncome + T.netIncome + a.synergies * (1 - t) - PE * a.debtPct * a.debtRate * (1 - t) - PE * a.cashPct * a.cashRate * (1 - t);
-  const shares = A.shares + (PE * a.stockPct) / A.price;
-  const eps0 = A.netIncome / A.shares;
+  const uses = T.marketCap * (1 + a.premium) + a.transactionCosts;
+  const ni = A.netIncome + T.netIncome + a.synergies * (1 - t) - uses * a.debtPct * a.debtRate * (1 - t) - uses * a.cashPct * a.cashRate * (1 - t);
+  const shares = A.dilutedShares + (uses * a.stockPct) / A.price;
+  const eps0 = A.netIncome / A.dilutedShares;
   return (ni / shares - eps0) / Math.abs(eps0);
 }
 
@@ -296,7 +318,7 @@ export function gridPremiumStock(A: DealCompany, T: DealCompany, a: DealAssumpti
 export type Rag = 'green' | 'amber' | 'red';
 
 export interface RiskItem {
-  id: 'antitrust' | 'credit' | 'integration' | 'eps';
+  id: 'antitrust' | 'credit' | 'integration' | 'eps' | 'governance';
   title: string;
   rating: Rag;
   headline: string;
@@ -306,13 +328,28 @@ export interface RiskItem {
 // 2025 HSR size-of-transaction threshold (adjusted annually by the FTC).
 export const HSR_THRESHOLD = 126.4e6;
 
-export function riskScorecard(A: DealCompany, T: DealCompany, a: DealAssumptions, r: DealResult): RiskItem[] {
+/** Optional inputs from the extended SEC feeds (PRD v2 appendix A, B, D). */
+export interface RiskExtras {
+  productOverlap?: number | null; // share of target revenue in segments that overlap the acquirer's
+  geoOverlap?: number | null; // 0-1 similarity of the two companies' geographic revenue mix
+  targetGovernance?: { rating: Rag; flags: string[] } | null;
+  activist?: string | null; // filer of a recent 13D on the target
+  insiderSelling?: number | null; // target insiders' open-market sales, last 12 months
+}
+
+export function riskScorecard(A: DealCompany, T: DealCompany, a: DealAssumptions, r: DealResult, x: RiskExtras = {}): RiskItem[] {
   const sic4 = !!A.sic && A.sic === T.sic;
   const sic2 = !!A.sic && !!T.sic && A.sic.slice(0, 2) === T.sic.slice(0, 2);
   const big = r.equityPurchasePrice > 10e9 || A.revenue + T.revenue > 50e9;
   const hsr = r.equityPurchasePrice > HSR_THRESHOLD;
-  const antitrust: Rag = sic4 ? (big ? 'red' : 'amber') : sic2 ? (big ? 'amber' : 'green') : 'green';
-  const overlap = sic4 ? 'same industry code' : sic2 ? 'related industries' : 'different industries';
+  const productHeavy = (x.productOverlap ?? 0) >= 0.3;
+  const horizontal = sic4 || productHeavy;
+  const antitrust: Rag = horizontal ? (big ? 'red' : 'amber') : sic2 ? (big ? 'amber' : 'green') : 'green';
+  const overlap = productHeavy ? `${Math.round((x.productOverlap ?? 0) * 100)}% product overlap` : sic4 ? 'same industry code' : sic2 ? 'related industries' : 'different industries';
+  const segNote =
+    x.productOverlap != null || x.geoOverlap != null
+      ? ` Segment data: ${x.productOverlap != null ? `${Math.round(x.productOverlap * 100)}% of ${T.ticker} revenue sits in product lines that overlap ${A.ticker}'s` : 'no comparable product breakdown'}${x.geoOverlap != null ? `; geographic mix similarity ${Math.round(x.geoOverlap * 100)}%` : ''}.`
+      : '';
 
   const lev = r.leverage.proForma;
   const credit: Rag = !Number.isFinite(lev) || lev > 4 ? 'red' : lev > 2.5 ? 'amber' : 'green';
@@ -330,7 +367,7 @@ export function riskScorecard(A: DealCompany, T: DealCompany, a: DealAssumptions
       title: 'Regulatory / antitrust',
       rating: antitrust,
       headline: `${hsr ? 'HSR filing required' : 'Below HSR threshold'} · ${overlap}`,
-      detail: `Deal value is well ${hsr ? 'above' : 'below'} the ~$126M HSR size-of-transaction threshold. ${A.ticker} (SIC ${A.sic ?? 'n/a'}) and ${T.ticker} (SIC ${T.sic ?? 'n/a'}) are in ${overlap}. Industry-code overlap is a proxy only: a real review needs market-share data.`,
+      detail: `Deal value is well ${hsr ? 'above' : 'below'} the ~$126M HSR size-of-transaction threshold. ${A.ticker} (SIC ${A.sic ?? 'n/a'}) and ${T.ticker} (SIC ${T.sic ?? 'n/a'}).${segNote} Overlap is a proxy only: a real review needs market-share data.`,
     },
     {
       id: 'credit',
@@ -353,5 +390,27 @@ export function riskScorecard(A: DealCompany, T: DealCompany, a: DealAssumptions
       headline: `${r.accretion >= 0 ? 'Accretive' : 'Dilutive'} ${(r.accretion * 100).toFixed(1)}% in year one`,
       detail: `Breakeven needs $${(r.breakevenSynergies / 1e6).toFixed(0)}M of pre-tax synergies at this price and financing mix.`,
     },
+    ...(x.targetGovernance || x.activist || x.insiderSelling
+      ? [governanceItem(T, x)]
+      : []),
   ];
+}
+
+function governanceItem(T: DealCompany, x: RiskExtras): RiskItem {
+  const g = x.targetGovernance;
+  let rating: Rag = g?.rating ?? 'green';
+  const notes: string[] = [];
+  if (g?.flags.length) notes.push(`8-K / filings: ${g.flags.slice(0, 2).join('; ')}`);
+  if (x.activist) {
+    notes.push(`activist 13D by ${x.activist}`);
+    if (rating === 'green') rating = 'amber';
+  }
+  if (x.insiderSelling && x.insiderSelling > 0) notes.push(`insiders sold $${(x.insiderSelling / 1e6).toFixed(1)}M on the open market in 12 months`);
+  return {
+    id: 'governance',
+    title: 'Target governance',
+    rating,
+    headline: rating === 'red' ? 'Accounting red flag' : notes.length ? 'Items to diligence' : 'No red flags',
+    detail: notes.length ? `${T.ticker}: ${notes.join('; ')}.` : `${T.ticker}: no auditor changes, restatements, activist 13D filings or notable insider sales in the lookback window.`,
+  };
 }

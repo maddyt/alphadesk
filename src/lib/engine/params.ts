@@ -16,6 +16,7 @@ export const PARAM_KEYS: Record<AssumptionKey, string> = {
   lboInterestRate: 'ir',
   riskFree: 'rf',
   erp: 'erp',
+  cocCost: 'coc',
 };
 
 export function readOverrides(params: Record<string, string | string[] | undefined>): Partial<Assumptions> {

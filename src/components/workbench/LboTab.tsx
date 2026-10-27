@@ -93,8 +93,8 @@ export function LboTab({ b, a, lbo }: { b: BaseInputs; a: Assumptions; lbo: LboR
           </table>
         </div>
         <p className="mt-4 text-xs leading-relaxed text-mute">
-          The floor is solved by bisection: the highest entry price at which a sponsor levered {mult(a.lboLeverage)} (capped at 75% of price) still earns a {pct(a.lboTargetIrr, 1)} IRR
-          exiting at {mult(a.exitMultiple)} after {LBO_HOLD_YEARS} years. The football-field bar spans leverage of {mult(a.lboLeverage - 0.5)}-{mult(a.lboLeverage + 0.5)} and exit multiples ±1.0x.
+          The floor is solved by bisection: the highest entry price at which a sponsor funding {pct(a.lboLeverage, 0)} of the price with debt still earns a {pct(a.lboTargetIrr, 1)} IRR
+          exiting at {mult(a.exitMultiple)} after {LBO_HOLD_YEARS} years. The football-field bar spans debt of {pct(a.lboLeverage - 0.05, 0)}-{pct(a.lboLeverage + 0.05, 0)} of the price and exit multiples ±1.0x.{a.cocCost > 0 ? ` Change-of-control payouts of $${(a.cocCost / 1e6).toFixed(0)}M from the proxy are included as an extra use of funds.` : ''}
         </p>
       </Card>
     </div>

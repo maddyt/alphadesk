@@ -8,7 +8,9 @@ import { waterSteps } from '@/components/deals/steps';
 import { LIGHT } from '@/components/charts/theme';
 import { Logo } from '@/components/ui';
 import { TickerNotFoundError } from '@/lib/data/dataset';
-import { gridPremiumSynergies, synergyMax, type Rag } from '@/lib/deals/engine';
+import { gridPremiumSynergies, riskScorecard, synergyMax, type Rag } from '@/lib/deals/engine';
+import { geoBreakdown, geoOverlap, productBreakdown, productOverlap } from '@/lib/deals/overlap';
+import { getIntel } from '@/lib/data/intel';
 import { dealQuery, readDealOverrides } from '@/lib/deals/params';
 import { dealRun } from '@/lib/deals/run';
 import { date, money, mult, pct, price, signedPct } from '@/lib/format';
@@ -36,7 +38,16 @@ export default async function Teaser({ params, searchParams }: Props) {
     if (e instanceof TickerNotFoundError) notFound();
     throw e;
   }
-  const { A, T, a, r, risk, defaults } = d;
+  const { A, T, a, r, defaults } = d;
+  // PRD v2: the teaser scorecard includes segment overlap and target governance when the feeds are available.
+  const [iA, iT] = await Promise.all([getIntel(A.ticker).catch(() => null), getIntel(T.ticker).catch(() => null)]);
+  const risk = riskScorecard(A, T, a, r, {
+    productOverlap: productOverlap(productBreakdown(iA?.segments?.breakdowns), productBreakdown(iT?.segments?.breakdowns))?.share ?? null,
+    geoOverlap: geoOverlap(geoBreakdown(iA?.segments?.breakdowns), geoBreakdown(iT?.segments?.breakdowns)),
+    targetGovernance: iT?.governance ? { rating: iT.governance.rating, flags: iT.governance.flags.filter((f) => f.severity !== 'info').map((f) => `${f.code} (${f.filingDate})`) } : null,
+    activist: iT?.ownership?.find((o) => o.activist)?.filer ?? null,
+    insiderSelling: iT?.insiders?.signal === 'selling' ? iT.insiders.sells : null,
+  });
   const grid = gridPremiumSynergies(A, T, a, synergyMax(T, A));
   const accretive = r.accretion >= 0;
   const live = A.source === 'sec-live' && T.source === 'sec-live';
@@ -96,6 +107,7 @@ export default async function Teaser({ params, searchParams }: Props) {
                     [`New ${A.ticker} shares issued`, `${(r.newShares / 1e6).toFixed(0)}M (${money(r.stockIssued)})`],
                     ['New acquisition debt', `${money(r.newDebt)} @ ${pct(a.debtRate, 2)}`],
                     ['Pre-tax run-rate synergies', money(a.synergies)],
+                    ...(a.transactionCosts > 0 ? ([['Change-of-control payouts (proxy)', money(a.transactionCosts)]] as [string, string][]) : []),
                     [`${T.ticker} holders’ pro-forma stake`, pct(r.ownershipTarget, 1)],
                   ]}
                 />

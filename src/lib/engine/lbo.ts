@@ -1,13 +1,13 @@
 // LBO floor: the highest entry price a financial sponsor could pay and still earn
-// its hurdle IRR, given a leverage package and an exit multiple. Debt is serviced
-// from free cash flow with a 100% cash sweep.
+// its hurdle IRR, given debt funding of 50-60% of the price and an exit multiple.
+// Debt is serviced from free cash flow with a 100% cash sweep; change-of-control
+// payouts, when known, are an extra use of funds.
 
 import type { Assumptions, BaseInputs } from './model.ts';
 import { projectOperations } from './model.ts';
 import { bisect } from './stats.ts';
 
 export const LBO_FEES_PCT = 0.02; // transaction + financing fees, % of entry EV
-export const LBO_MAX_LTV = 0.75; // debt capped at 75% of purchase price
 export const LBO_HOLD_YEARS = 5;
 
 export interface LboYear {
@@ -27,6 +27,7 @@ export interface LboResult {
   entryMultiple: number;
   entryEv: number;
   fees: number;
+  coc: number;
   debt: number;
   sponsorEquity: number;
   leverage: number;
@@ -42,8 +43,9 @@ export function runLbo(b: BaseInputs, a: Assumptions, entryMultiple: number, lev
   const ebitda0 = b.ltmEbitda;
   const entryEv = entryMultiple * ebitda0;
   const fees = entryEv * LBO_FEES_PCT;
-  const debt0 = Math.min(leverage * ebitda0, entryEv * LBO_MAX_LTV);
-  const sponsorEquity = entryEv + fees - debt0;
+  const coc = Math.max(0, a.cocCost);
+  const debt0 = leverage * entryEv; // PRD v2: 50-60% of the purchase price
+  const sponsorEquity = entryEv + fees + coc - debt0;
 
   const ops = projectOperations(b, a);
   let debt = debt0;
@@ -63,7 +65,7 @@ export function runLbo(b: BaseInputs, a: Assumptions, entryMultiple: number, lev
   const exitEquity = exitEv - debt + cash;
   const moic = exitEquity / sponsorEquity;
   const irr = moic > 0 ? moic ** (1 / LBO_HOLD_YEARS) - 1 : -1;
-  return { entryMultiple, entryEv, fees, debt: debt0, sponsorEquity, leverage, exitMultiple, exitEv, exitEquity, moic, irr, years };
+  return { entryMultiple, entryEv, fees, coc, debt: debt0, sponsorEquity, leverage, exitMultiple, exitEv, exitEquity, moic, irr, years };
 }
 
 /** Solve for the entry EV/EBITDA multiple that yields exactly the target IRR. */

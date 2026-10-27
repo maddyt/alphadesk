@@ -26,7 +26,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     throw e;
   }
   const b = buildBaseInputs(ds);
-  const run = runValuation(b, defaultAssumptions(b));
+  const run = runValuation(b, defaultAssumptions(b, ds.macro?.tenYear));
   void logRun({ ticker: b.ticker, name: b.name, price: b.price, current_ev: b.currentEV, composite_price: run.compositePrice, source: ds.source });
   return (
     <>

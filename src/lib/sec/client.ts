@@ -42,6 +42,14 @@ export async function secFetch<T>(url: string, timeoutMs = 20_000): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Raw text (XML, HTML, SGML headers) from www.sec.gov archives, same rate limit and User-Agent. */
+export async function secText(url: string, timeoutMs = 20_000): Promise<string> {
+  await rateLimit();
+  const res = await fetch(url, { headers: { 'User-Agent': UA }, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw new Error(`SEC EDGAR ${res.status} for ${url}`);
+  return res.text();
+}
+
 let tickerMap: Promise<Map<string, { cik: string; title: string }>> | null = null;
 
 async function loadTickerMap() {

@@ -5,6 +5,7 @@ import type { CompanyFinancials, LineItem, LineKey, Period } from '@/lib/types';
 import { companyFilingsUrl, conceptUrl, filingUrl } from '@/lib/sec/links';
 import { date, mm, shares } from '@/lib/format';
 import { Badge, Card, td, th } from '../ui';
+import { checkBalance } from '@/lib/schema';
 
 const ROWS: { key: LineKey; section?: string }[] = [
   { key: 'revenue', section: 'Income statement' },
@@ -22,9 +23,12 @@ const ROWS: { key: LineKey; section?: string }[] = [
   { key: 'inventory' },
   { key: 'ap' },
   { key: 'debt' },
+  { key: 'assetsCurrent' },
   { key: 'assets' },
+  { key: 'liabilitiesCurrent' },
   { key: 'liabilities' },
   { key: 'equity' },
+  { key: 'liabilitiesAndEquity' },
   { key: 'sharesOutstanding', section: 'Shares' },
   { key: 'sharesDiluted' },
 ];
@@ -42,6 +46,7 @@ export function FinancialsTab({ company }: { company: CompanyFinancials }) {
     ...(company.balance.end !== company.years[company.years.length - 1]?.end ? [{ period: company.balance, kind: 'bal' as const }] : []),
   ];
   const live = company.source === 'sec-live';
+  const bal = checkBalance(company.balance.items);
 
   return (
     <>
@@ -50,6 +55,11 @@ export function FinancialsTab({ company }: { company: CompanyFinancials }) {
         subtitle="USD millions. Click any figure to inspect its XBRL tag, filing and accession number."
         right={
           <div className="flex items-center gap-2">
+            {bal.checked && (
+              <Badge tone={bal.ties ? 'live' : 'snap'}>
+                <span title={`Zod-validated: assets ${mm(bal.assets)} vs liabilities + equity ${mm(bal.liabilitiesAndEquity)} ($M)`}>{bal.ties ? '✓ Balance sheet ties' : '⚠ Balance sheet gap'}</span>
+              </Badge>
+            )}
             <Badge tone={live ? 'live' : 'snap'}>{live ? `CIK ${company.cik}` : 'Offline snapshot'}</Badge>
             <a href={companyFilingsUrl(company.cik)} target="_blank" rel="noreferrer" className="text-xs text-[#8DB4FF] hover:underline">
               EDGAR filings ↗
@@ -116,7 +126,7 @@ export function FinancialsTab({ company }: { company: CompanyFinancials }) {
   );
 }
 
-const INSTANT = new Set<LineKey>(['cash', 'securities', 'ar', 'inventory', 'ap', 'debt', 'assets', 'liabilities', 'equity']);
+const INSTANT = new Set<LineKey>(['cash', 'securities', 'ar', 'inventory', 'ap', 'debt', 'assets', 'assetsCurrent', 'liabilitiesCurrent', 'liabilities', 'equity', 'liabilitiesAndEquity']);
 
 function labelOf(cols: { period: Period }[], key: LineKey) {
   for (const c of cols) if (c.period.items[key]) return c.period.items[key]!.label;

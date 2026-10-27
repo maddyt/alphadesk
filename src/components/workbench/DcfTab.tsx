@@ -7,10 +7,12 @@ import type { ValuationRun } from '@/lib/engine/valuation';
 import { money, mm, mult, pct, price } from '@/lib/format';
 import { Columns, Waterfall } from '../charts/Charts';
 import { Card, td, th } from '../ui';
+import { YieldCurveChart } from '../intel/IntelPanels';
+import type { YieldCurve } from '@/lib/sec/parsers';
 
 const compact = (v: number) => money(v, 0).replace('.0', '');
 
-export function DcfTab({ b, a, run, wacc }: { b: BaseInputs; a: Assumptions; run: ValuationRun; wacc: WaccBuild }) {
+export function DcfTab({ b, a, run, wacc, macro }: { b: BaseInputs; a: Assumptions; run: ValuationRun; wacc: WaccBuild; macro?: YieldCurve }) {
   const [tv, setTv] = useState<'gordon' | 'exit'>('gordon');
   const d = run.dcf;
   const ev = tv === 'gordon' ? d.evGordon : d.evExit;
@@ -107,6 +109,13 @@ export function DcfTab({ b, a, run, wacc }: { b: BaseInputs; a: Assumptions; run
             <dt className="font-sans text-mute">WACC used (slider)</dt>
             <dd className="text-right font-semibold text-[#8DB4FF]">{pct(a.wacc, 2)}</dd>
           </dl>
+          <div className="mt-4 border-t border-line pt-3">
+            <div className="text-[10.5px] uppercase tracking-wider text-mute">Risk-free rate source</div>
+            <div className="mt-0.5 text-[12px] text-sub">
+              {macro?.date ? `${macro.source}, 10-year yield as of ${macro.date}` : (macro?.source ?? 'Static default')}
+            </div>
+            {macro && macro.points.length > 2 && <YieldCurveChart curve={macro} />}
+          </div>
         </Card>
 
         <Card

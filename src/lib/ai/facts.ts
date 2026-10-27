@@ -36,7 +36,7 @@ export function show(v: number, unit: Unit, digits = 1): string {
 
 const SLUG: Record<string, string> = {
   '52-Week Range': 'w52',
-  'Public Comps (EV/EBITDA)': 'comps',
+  'Public Comps (EV/EBITDA & EV/Revenue)': 'comps',
   'Precedent Transactions': 'precedents',
   'Discounted Cash Flow': 'dcf',
   'LBO Floor Valuation': 'lbo',
@@ -67,7 +67,7 @@ export function buildFactSheet(b: BaseInputs, a: Assumptions, run: ValuationRun,
   add('revenue_growth_y1', 'Year-1 revenue growth assumption', a.revenueGrowth, 'pct');
   add('ebit_margin', 'EBIT margin assumption', a.ebitMargin, 'pct');
   add('control_premium', 'Control premium', a.controlPremium, 'pct');
-  add('lbo_leverage', 'LBO leverage (Debt/EBITDA)', a.lboLeverage, 'x');
+  add('lbo_leverage', 'LBO debt as % of purchase price', a.lboLeverage, 'pct');
   add('lbo_target_irr', 'Sponsor target IRR', a.lboTargetIrr, 'pct');
   add('composite_ev', 'Composite EV (median of methodology medians)', run.compositeEV, 'usd');
   add('composite_price', 'Composite implied share price', run.compositePrice, 'usd_ps');

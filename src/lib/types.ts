@@ -1,3 +1,5 @@
+import type { GovernanceFlag, InsiderSummary, OwnershipFiling, SegmentBreakdown, YieldCurve } from './sec/parsers.ts';
+
 // Shared data model. Every number the engine consumes is a LineItem that carries
 // the XBRL facts it was built from, so any figure on screen can be traced back to
 // a tag, a filing, and an accession number.
@@ -37,6 +39,9 @@ export type LineKey =
   | 'inventory'
   | 'ap'
   | 'assets'
+  | 'assetsCurrent'
+  | 'liabilitiesCurrent'
+  | 'liabilitiesAndEquity'
   | 'liabilities'
   | 'equity'
   | 'sharesOutstanding'
@@ -96,6 +101,8 @@ export interface PeerComp {
   ticker: string;
   name: string;
   evEbitda: number;
+  /** EV / LTM revenue (PRD v2: comps use both multiples). */
+  evRevenue: number | null;
   ev: number | null;
   ebitda: number | null;
   source: DataSource;
@@ -110,4 +117,21 @@ export interface Dataset {
   warnings: string[];
   source: DataSource;
   generatedAt: string;
+  /** Live Treasury curve for the risk-free rate (PRD v2 appendix E). */
+  macro?: YieldCurve;
+}
+
+/* PRD v2 appendix: extended SEC feeds. Each section is independent; null = unavailable. */
+
+export interface Intel {
+  ticker: string;
+  cik: string;
+  source: DataSource;
+  segments: { breakdowns: SegmentBreakdown[]; accessionNumber: string | null; filingDate: string | null; fyEnd: string } | null;
+  insiders: InsiderSummary | null;
+  ownership: OwnershipFiling[] | null;
+  governance: { flags: GovernanceFlag[]; rating: 'green' | 'amber' | 'red'; months: number } | null;
+  proxy: { accessionNumber: string; filingDate: string; url: string } | null;
+  notes: string[];
+  fetchedAt: string;
 }

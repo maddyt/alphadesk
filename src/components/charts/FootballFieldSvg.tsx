@@ -55,18 +55,24 @@ export function fieldLayout(width: number, rows: FieldRow[], current: number, co
 
 const SHORT: Record<string, string> = {
   '52-Week Range': '52-Week Range',
-  'Public Comps (EV/EBITDA)': 'Trading Comps',
+  'Public Comps (EV/EBITDA & EV/Revenue)': 'Trading Comps',
   'Precedent Transactions': 'Precedents',
   'Discounted Cash Flow': 'DCF',
   'LBO Floor Valuation': 'LBO Floor',
+  'Sum-of-the-Parts': 'SOTP',
+};
+
+const WIDE: Record<string, string> = {
+  'Public Comps (EV/EBITDA & EV/Revenue)': 'Public Comps',
 };
 
 const SUB: Record<string, string> = {
   '52-Week Range': 'Where the stock traded this year',
-  'Public Comps (EV/EBITDA)': 'Priced like similar companies',
+  'Public Comps (EV/EBITDA & EV/Revenue)': 'Peers’ EV/EBITDA & EV/Revenue',
   'Precedent Transactions': 'What a takeover buyer might pay',
   'Discounted Cash Flow': 'Value of its future cash',
   'LBO Floor Valuation': 'What a buyout fund could pay',
+  'Sum-of-the-Parts': 'Each business valued separately',
 };
 
 export function FootballFieldSvg(p: FootballFieldSvgProps) {
@@ -134,7 +140,7 @@ export function FootballFieldSvg(p: FootballFieldSvgProps) {
         return (
           <g key={r.range.methodology}>
             <text x={16} y={yMid - (narrow ? 0 : 5)} fontSize={narrow ? 12 : 13.5} fontWeight={600} fill={t.text} dominantBaseline={narrow ? 'middle' : 'auto'}>
-              {narrow ? SHORT[r.range.methodology] : r.range.methodology}
+              {narrow ? SHORT[r.range.methodology] : (WIDE[r.range.methodology] ?? r.range.methodology)}
             </text>
             {!narrow && (
               <text x={16} y={yMid + 13} fontSize={11} fill={t.mute}>

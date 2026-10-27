@@ -38,6 +38,7 @@ export function CompsTab({ b, a, peers, peerBasis }: { b: BaseInputs; a: Assumpt
                   <th className={th}>EV</th>
                   <th className={th}>LTM EBITDA</th>
                   <th className={th}>EV / EBITDA</th>
+                  <th className={th}>EV / Rev</th>
                 </tr>
               </thead>
               <tbody>
@@ -53,6 +54,7 @@ export function CompsTab({ b, a, peers, peerBasis }: { b: BaseInputs; a: Assumpt
                       {b.peerExcluded.includes(p.ticker) && <span className="mr-2 rounded bg-amber/10 px-1.5 py-0.5 font-sans text-[10px] font-medium text-amber">NM · outlier</span>}
                       <span className={b.peerExcluded.includes(p.ticker) ? 'text-mute line-through' : ''}>{mult(p.evEbitda)}</span>
                     </td>
+                    <td className={td}>{p.evRevenue ? mult(p.evRevenue) : '—'}</td>
                   </tr>
                 ))}
                 <tr className="bg-brand/10">
@@ -60,6 +62,7 @@ export function CompsTab({ b, a, peers, peerBasis }: { b: BaseInputs; a: Assumpt
                   <td className={td}>{money(b.currentEV)}</td>
                   <td className={td}>{money(b.ltmEbitda)}</td>
                   <td className={`${td} font-semibold text-[#8DB4FF]`}>{mult(own)}</td>
+                  <td className={`${td} font-semibold text-[#8DB4FF]`}>{mult(b.currentEV / b.ltmRevenue)}</td>
                 </tr>
               </tbody>
             </table>
@@ -67,7 +70,7 @@ export function CompsTab({ b, a, peers, peerBasis }: { b: BaseInputs; a: Assumpt
         </Card>
 
         <div className="space-y-5">
-          <Card title="Implied valuation" subtitle={`Peer multiples x ${b.ticker} ${b.ltmLabel} EBITDA of ${money(b.ltmEbitda)}`}>
+          <Card title="Implied valuation" subtitle={`Peer multiples x ${b.ticker} ${b.ltmLabel} EBITDA of ${money(b.ltmEbitda)} and revenue of ${money(b.ltmRevenue)}. The comps bar spans both.`}>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-line">
@@ -80,16 +83,23 @@ export function CompsTab({ b, a, peers, peerBasis }: { b: BaseInputs; a: Assumpt
               <tbody>
                 {(
                   [
-                    ['25th percentile', q.p25],
-                    ['Median', q.median],
-                    ['75th percentile', q.p75],
-                  ] as const
-                ).map(([k, m]) => (
+                    ['EV/EBITDA 25th', q.p25, b.ltmEbitda],
+                    ['EV/EBITDA median', q.median, b.ltmEbitda],
+                    ['EV/EBITDA 75th', q.p75, b.ltmEbitda],
+                    ...(b.peerRevMultiples.length >= 2
+                      ? ([
+                          ['EV/Revenue 25th', percentile(b.peerRevMultiples, 0.25), b.ltmRevenue],
+                          ['EV/Revenue median', percentile(b.peerRevMultiples, 0.5), b.ltmRevenue],
+                          ['EV/Revenue 75th', percentile(b.peerRevMultiples, 0.75), b.ltmRevenue],
+                        ] as const)
+                      : []),
+                  ] as (readonly [string, number, number])[]
+                ).map(([k, m, metric]) => (
                   <tr key={k} className="border-b border-line/40">
                     <td className={td}>{k}</td>
                     <td className={td}>{mult(m)}</td>
-                    <td className={td}>{money(m * b.ltmEbitda)}</td>
-                    <td className={`${td} font-semibold text-ink`}>{price(implied(m))}</td>
+                    <td className={td}>{money(m * metric)}</td>
+                    <td className={`${td} font-semibold text-ink`}>{price(evToPrice(b, m * metric))}</td>
                   </tr>
                 ))}
               </tbody>

@@ -83,6 +83,8 @@ export function DealControls({
   equityPrice,
   onChange,
   onReset,
+  rateNote,
+  transactionCosts,
 }: {
   a: DealAssumptions;
   defaults: DealAssumptions;
@@ -94,6 +96,8 @@ export function DealControls({
   equityPrice: number;
   onChange: (a: DealAssumptions) => void;
   onReset: () => void;
+  rateNote: string;
+  transactionCosts?: number;
 }) {
   const [advanced, setAdvanced] = useState(false);
   const moved = (k: keyof DealAssumptions) => Math.abs(a[k] - defaults[k]) > 1e-6;
@@ -166,6 +170,21 @@ export function DealControls({
             />
           ))}
         </div>
+        <div className="mt-4">
+          <Slider
+            label="Interest rate on new debt"
+            value={a.debtRate}
+            min={0.03}
+            max={0.12}
+            step={0.0025}
+            display={pct(a.debtRate, 2)}
+            minLabel="3%"
+            maxLabel="12%"
+            moved={moved('debtRate')}
+            onChange={(v) => onChange({ ...a, debtRate: v })}
+            help={rateNote}
+          />
+        </div>
         {cashOver && (
           <p className="mt-2 rounded-md border border-amber/30 bg-amber/10 px-2 py-1.5 text-[11px] text-amber">
             Cash needed ({money(a.cashPct * equityPrice)}) is more than the buyer holds ({money(acquirerCash)}).
@@ -194,12 +213,16 @@ export function DealControls({
 
       <section>
         <button type="button" onClick={() => setAdvanced((x) => !x)} className="flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.12em] text-sub">
-          Rates & tax <span className="text-mute">{advanced ? '−' : '+'}</span>
+          Cash yield, tax & costs <span className="text-mute">{advanced ? '−' : '+'}</span>
         </button>
         {advanced && (
           <div className="mt-3 space-y-3">
-            <Slider label="Interest on new debt" value={a.debtRate} min={0.03} max={0.1} step={0.0025} display={pct(a.debtRate, 2)} minLabel="3%" maxLabel="10%" moved={moved('debtRate')} onChange={(v) => onChange({ ...a, debtRate: v })} />
             <Slider label="Interest cash was earning" value={a.cashRate} min={0} max={0.06} step={0.0025} display={pct(a.cashRate, 2)} minLabel="0%" maxLabel="6%" moved={moved('cashRate')} onChange={(v) => onChange({ ...a, cashRate: v })} />
+            {(transactionCosts ?? 0) > 0 && (
+              <p className="rounded-md bg-raised/60 px-2 py-1.5 text-[11px] text-sub">
+                Includes {money(a.transactionCosts)} of change-of-control payouts (from the target&rsquo;s proxy) funded at close.
+              </p>
+            )}
             <Slider label="Tax rate" value={a.taxRate} min={0.1} max={0.3} step={0.005} display={pct(a.taxRate, 1)} minLabel="10%" maxLabel="30%" moved={moved('taxRate')} onChange={(v) => onChange({ ...a, taxRate: v })} />
           </div>
         )}

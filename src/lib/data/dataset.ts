@@ -4,9 +4,11 @@ import { companyFacts, resolveCik, submissionsMeta } from '../sec/client.ts';
 import { parseCompanyFacts } from '../sec/xbrl.ts';
 import { isFinancialSic, peersFor } from '../sec/tickers.ts';
 import { fetchMarketData, fetchPrice } from '../market/quote.ts';
+import { getYieldCurve } from '../market/treasury.ts';
 import { adjustedEbit } from '../engine/model.ts';
 import { snapshotCompany, snapshotDataset, snapshotMarket, snapshotPeers } from './snapshot.ts';
 import { supabase } from '../supabase.ts';
+import { checkBalance } from '../schema.ts';
 
 const FINANCIALS_TTL_MS = 12 * 3600_000; // XBRL facts change only when a filing lands
 const DATASET_TTL_MS = 15 * 60_000; // prices move; keep the assembled dataset briefly
@@ -84,14 +86,15 @@ async function livePeer(ticker: string): Promise<PeerComp | null> {
     const ev = price * shares + (bal.debt?.value ?? 0) - (bal.cash?.value ?? 0) - (bal.securities?.value ?? 0);
     const evEbitda = ev / ebitda;
     if (!(ebitda > 0) || !Number.isFinite(evEbitda) || evEbitda <= 0 || evEbitda > 80) return null;
-    return { ticker, name: fin.name, evEbitda, ev, ebitda, source: 'sec-live' };
+    const revenue = ltm.revenue?.value;
+    return { ticker, name: fin.name, evEbitda, evRevenue: revenue && revenue > 0 ? ev / revenue : null, ev, ebitda, source: 'sec-live' };
   } catch {
     return null;
   }
 }
 
 async function liveDataset(ticker: string): Promise<Dataset> {
-  const company = await getFinancials(ticker);
+  const [company, macro] = await Promise.all([getFinancials(ticker), getYieldCurve()]);
   const warnings: string[] = [];
 
   const snapMarket = snapshotMarket(ticker);
@@ -127,7 +130,9 @@ async function liveDataset(ticker: string): Promise<Dataset> {
   if (company.years[company.years.length - 1]?.items.ebit?.formula) {
     warnings.push('EBIT is rebuilt as pre-tax income + interest expense because the company does not tag operating income.');
   }
-  return { company, market, peers, peerBasis, isFinancial, warnings, source: 'sec-live', generatedAt: new Date().toISOString() };
+  const bal = checkBalance(company.balance.items);
+  if (bal.checked && !bal.ties) warnings.push(`Balance-sheet check failed (Zod): ${bal.message}. Treat balance-sheet inputs with care.`);
+  return { company, market, peers, peerBasis, isFinancial, warnings, source: 'sec-live', generatedAt: new Date().toISOString(), macro };
 }
 
 export async function getDataset(rawTicker: string): Promise<Dataset> {

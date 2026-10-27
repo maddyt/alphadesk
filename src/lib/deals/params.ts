@@ -12,6 +12,7 @@ const KEYS: Record<keyof DealAssumptions, string> = {
   debtRate: 'rd',
   cashRate: 'rc',
   taxRate: 't',
+  transactionCosts: 'tc',
 };
 
 export function readDealOverrides(params: Record<string, string | string[] | undefined>): Partial<DealAssumptions> {
@@ -19,7 +20,7 @@ export function readDealOverrides(params: Record<string, string | string[] | und
   for (const [k, short] of Object.entries(KEYS) as [keyof DealAssumptions, string][]) {
     const raw = params[short];
     const v = Number(Array.isArray(raw) ? raw[0] : raw);
-    if (raw !== undefined && Number.isFinite(v)) out[k] = k === 'synergies' ? v * 1e6 : v;
+    if (raw !== undefined && Number.isFinite(v)) out[k] = k === 'synergies' || k === 'transactionCosts' ? v * 1e6 : v;
   }
   return out;
 }
@@ -34,6 +35,7 @@ export function resolveDeal(defaults: DealAssumptions, o: Partial<DealAssumption
     debtRate: clamp(o.debtRate ?? defaults.debtRate, 0, 0.2),
     cashRate: clamp(o.cashRate ?? defaults.cashRate, 0, 0.15),
     taxRate: clamp(o.taxRate ?? defaults.taxRate, 0, 0.4),
+    transactionCosts: clamp(o.transactionCosts ?? defaults.transactionCosts, 0, 1e12),
   };
   const sum = a.cashPct + a.stockPct + a.debtPct;
   if (Math.abs(sum - 1) > 1e-6) {
@@ -48,7 +50,7 @@ export function resolveDeal(defaults: DealAssumptions, o: Partial<DealAssumption
 export function dealQuery(a: DealAssumptions, defaults: DealAssumptions): string {
   const q = new URLSearchParams();
   for (const [k, short] of Object.entries(KEYS) as [keyof DealAssumptions, string][]) {
-    if (Math.abs(a[k] - defaults[k]) > 1e-9) q.set(short, String(k === 'synergies' ? +(a[k] / 1e6).toFixed(1) : +a[k].toFixed(4)));
+    if (Math.abs(a[k] - defaults[k]) > 1e-9) q.set(short, String(k === 'synergies' || k === 'transactionCosts' ? +(a[k] / 1e6).toFixed(1) : +a[k].toFixed(4)));
   }
   const s = q.toString();
   return s ? `?${s}` : '';

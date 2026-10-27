@@ -2,8 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DealAssumptions, DealCompany, Rag } from '@/lib/deals/engine';
-import { gridPremiumStock, gridPremiumSynergies, riskScorecard, runDeal, synergyMax, synergyStep } from '@/lib/deals/engine';
+import type { DealAssumptions, DealCompany, Rag, RiskExtras } from '@/lib/deals/engine';
+import { creditSpread, gridPremiumStock, gridPremiumSynergies, riskScorecard, runDeal, synergyMax, synergyStep } from '@/lib/deals/engine';
+import { geoBreakdown, geoOverlap, productBreakdown, productOverlap } from '@/lib/deals/overlap';
+import type { YieldCurve } from '@/lib/sec/parsers';
+import { GovernancePanel, InsiderPanel, OwnershipPanel, ParachutePanel, SegmentMix, axisName, useIntel } from '../intel/IntelPanels';
 import { dealQuery } from '@/lib/deals/params';
 import { money, mult, pct, price, signedPct } from '@/lib/format';
 import type { LineItem } from '@/lib/types';
@@ -17,6 +20,7 @@ import { waterSteps } from './steps';
 const TABS = [
   { id: 'sensitivity', label: 'Sensitivity' },
   { id: 'terms', label: 'Deal terms' },
+  { id: 'overlap', label: 'Overlap & target diligence' },
   { id: 'rationale', label: 'AI rationale' },
   { id: 'sec', label: 'SEC data' },
 ] as const;
@@ -28,7 +32,7 @@ const RAG: Record<Rag, { dot: string; ring: string; text: string; label: string 
   red: { dot: 'bg-down', ring: 'border-down/40 bg-down/5', text: 'text-down', label: 'High' },
 };
 
-export function DealWorkbench({ A, T, defaults, initial, warnings }: { A: DealCompany; T: DealCompany; defaults: DealAssumptions; initial: DealAssumptions; warnings: string[] }) {
+export function DealWorkbench({ A, T, defaults, initial, warnings, macro }: { A: DealCompany; T: DealCompany; defaults: DealAssumptions; initial: DealAssumptions; warnings: string[]; macro?: YieldCurve }) {
   const [a, setA] = useState<DealAssumptions>(initial);
   const [tab, setTab] = useState<Tab>('sensitivity');
   const [copied, setCopied] = useState(false);
@@ -38,7 +42,24 @@ export function DealWorkbench({ A, T, defaults, initial, warnings }: { A: DealCo
   const synMax = useMemo(() => synergyMax(T, A), [A, T]);
   const synStep = synergyStep(synMax);
   const r = useMemo(() => runDeal(A, T, a), [A, T, a]);
-  const risk = useMemo(() => riskScorecard(A, T, a, r), [A, T, a, r]);
+  // PRD v2 appendix: extended SEC feeds for both companies, loaded after first paint.
+  const { intel: iA, loading: lA } = useIntel(A.ticker);
+  const { intel: iT, loading: lT } = useIntel(T.ticker);
+  const extras: RiskExtras = useMemo(() => {
+    const po = productOverlap(productBreakdown(iA?.segments?.breakdowns), productBreakdown(iT?.segments?.breakdowns));
+    const activist = iT?.ownership?.find((o) => o.activist)?.filer ?? null;
+    return {
+      productOverlap: po?.share ?? null,
+      geoOverlap: geoOverlap(geoBreakdown(iA?.segments?.breakdowns), geoBreakdown(iT?.segments?.breakdowns)),
+      targetGovernance: iT?.governance ? { rating: iT.governance.rating, flags: iT.governance.flags.filter((f) => f.severity !== 'info').map((f) => `${f.code} (${f.filingDate})`) } : null,
+      activist,
+      insiderSelling: iT?.insiders?.signal === 'selling' ? iT.insiders.sells : null,
+    };
+  }, [iA, iT]);
+  const risk = useMemo(() => riskScorecard(A, T, a, r, extras), [A, T, a, r, extras]);
+  const rateNote = macro?.date
+    ? `Starts at the 10-year Treasury (${pct(macro.tenYear, 2)} on ${macro.date}) plus a ${pct(creditSpread(r.leverage.proForma), 2)} credit spread for ${r.leverage.proForma.toFixed(1)}x pro-forma leverage.`
+    : 'Cost of the acquisition debt. Higher → more dilutive.';
   const gSyn = useMemo(() => gridPremiumSynergies(A, T, a, synMax), [A, T, a, synMax]);
   const gStock = useMemo(() => gridPremiumStock(A, T, a), [A, T, a]);
   const query = dealQuery(a, defaults);
@@ -130,6 +151,7 @@ export function DealWorkbench({ A, T, defaults, initial, warnings }: { A: DealCo
             ))}
           </div>
         )}
+        <Alerts target={T} intel={iT} />
       </section>
 
       <section className="mt-6 grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -150,6 +172,8 @@ export function DealWorkbench({ A, T, defaults, initial, warnings }: { A: DealCo
               equityPrice={r.equityPurchasePrice}
               onChange={setA}
               onReset={() => setA(defaults)}
+              rateNote={rateNote}
+              transactionCosts={a.transactionCosts}
             />
           </div>
         </aside>
@@ -201,7 +225,7 @@ export function DealWorkbench({ A, T, defaults, initial, warnings }: { A: DealCo
           {/* --------------------------------------------------------- Risk */}
           <div>
             <h2 className="mb-3 text-[15px] font-semibold text-ink">Deal risk scorecard</h2>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className={`grid gap-3 sm:grid-cols-2 ${risk.length > 4 ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
               {risk.map((x) => (
                 <div key={x.id} className={`rounded-2xl border p-4 ${RAG[x.rating].ring}`}>
                   <div className="flex items-center justify-between">
@@ -245,6 +269,60 @@ export function DealWorkbench({ A, T, defaults, initial, warnings }: { A: DealCo
                 </div>
               )}
               {tab === 'terms' && <Terms A={A} T={T} a={a} r={r} />}
+              {tab === 'overlap' && (
+                <div className="space-y-5">
+                  <Card
+                    title="Product & geographic overlap"
+                    subtitle="Revenue disaggregation from each company’s latest 10-K XBRL. High overlap in the same products or regions raises HSR antitrust scrutiny."
+                    right={
+                      <div className="flex flex-wrap gap-2 text-[11px]">
+                        <span className="num rounded-md bg-raised px-2 py-1 text-sub">Product overlap {extras.productOverlap != null ? pct(extras.productOverlap, 0) : 'n/a'}</span>
+                        <span className="num rounded-md bg-raised px-2 py-1 text-sub">Geo similarity {extras.geoOverlap != null ? pct(extras.geoOverlap, 0) : 'n/a'}</span>
+                      </div>
+                    }
+                  >
+                    {lA || lT ? (
+                      <p className="text-sm text-sub">Loading segment data from both 10-Ks…</p>
+                    ) : (
+                      <div className="grid gap-6 lg:grid-cols-2">
+                        {[
+                          [A, iA],
+                          [T, iT],
+                        ].map(([c, i]) => {
+                          const co = c as DealCompany;
+                          const intel = i as typeof iA;
+                          return (
+                            <div key={co.ticker} className="space-y-4">
+                              <div className="text-[13px] font-semibold text-ink">
+                                {co.ticker} <span className="font-normal text-mute">· {co.name}</span>
+                              </div>
+                              {intel?.segments ? (
+                                intel.segments.breakdowns.map((b) => <SegmentMix key={b.axisQName} b={b} title={axisName(b.axis)} />)
+                              ) : (
+                                <p className="text-[12.5px] text-mute">No machine-readable segment breakdown{intel?.source === 'snapshot' ? ' in the offline snapshot' : ' in the latest 10-K'}.</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </Card>
+                  {iT ? (
+                    <>
+                      <div className="grid gap-5 xl:grid-cols-2">
+                        <GovernancePanel intel={iT} />
+                        <ParachutePanel ticker={T.ticker} intel={iT} applied={a.transactionCosts} onApply={(v) => setA((p) => ({ ...p, transactionCosts: v }))} />
+                      </div>
+                      <div className="grid gap-5 xl:grid-cols-2">
+                        <InsiderPanel intel={iT} />
+                        <OwnershipPanel intel={iT} />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-sub">{lT ? `Loading ${T.ticker} filings…` : 'Target SEC feeds unavailable.'}</p>
+                  )}
+                </div>
+              )}
               {tab === 'rationale' && <DealMemoTab acquirer={A.ticker} target={T.ticker} query={query} />}
               {tab === 'sec' && <SecData A={A} T={T} />}
             </div>
@@ -385,10 +463,19 @@ function Terms({ A, T, a, r }: { A: DealCompany; T: DealCompany; a: DealAssumpti
               <td className={td}>{money(r.newDebt)}</td>
               <td className={td}>{money(r.afterTaxInterest)} after-tax interest</td>
             </tr>
+            {a.transactionCosts > 0 && (
+              <tr className="border-b border-line/40">
+                <td className={td} colSpan={2}>
+                  Uses include change-of-control payouts
+                </td>
+                <td className={td}>{money(a.transactionCosts)}</td>
+                <td className={td}>from {T.ticker} DEF 14A</td>
+              </tr>
+            )}
             <tr>
               <td className={`${td} font-semibold text-ink`}>Total</td>
               <td className={td}>100%</td>
-              <td className={`${td} font-semibold text-ink`}>{money(r.equityPurchasePrice)}</td>
+              <td className={`${td} font-semibold text-ink`}>{money(r.totalUses)}</td>
               <td className={td} />
             </tr>
           </tbody>
@@ -480,5 +567,26 @@ function SecData({ A, T }: { A: DealCompany; T: DealCompany }) {
       </Card>
       {sel && <AuditModal cik={sel.c.cik} live={sel.c.source === 'sec-live'} sel={{ item: sel.item, period: sel.label }} onClose={() => setSel(null)} />}
     </>
+  );
+}
+
+/** Target red flags from Form 4, 13D/G and 8-K feeds, shown right under the company cards. */
+function Alerts({ target, intel }: { target: DealCompany; intel: ReturnType<typeof useIntel>['intel'] }) {
+  if (!intel) return null;
+  const items: { tone: 'amber' | 'red'; text: string }[] = [];
+  const g = intel.governance;
+  if (g) for (const f of g.flags.filter((x) => x.severity !== 'info').slice(0, 2)) items.push({ tone: f.severity === 'red' ? 'red' : 'amber', text: `${target.ticker} ${f.code}: ${f.title} (${f.filingDate})` });
+  const act = intel.ownership?.find((o) => o.activist);
+  if (act) items.push({ tone: 'amber', text: `Activist alert: ${act.filer} filed a ${act.form} on ${target.ticker} (${act.filingDate})` });
+  if (intel.insiders?.signal === 'selling') items.push({ tone: 'amber', text: `${target.ticker} insiders sold ${money(intel.insiders.sells)} on the open market in the last 12 months` });
+  if (!items.length) return null;
+  return (
+    <div className="mt-3 space-y-1.5">
+      {items.map((i) => (
+        <div key={i.text} className={`rounded-xl border px-4 py-2 text-[12px] ${i.tone === 'red' ? 'border-down/40 bg-down/10 text-down' : 'border-amber/30 bg-amber/5 text-amber'}`}>
+          ⚠ {i.text}
+        </div>
+      ))}
+    </div>
   );
 }

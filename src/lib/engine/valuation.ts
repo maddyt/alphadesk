@@ -10,10 +10,11 @@ import { clamp, fiveNumber, percentile } from './stats.ts';
 
 export const METHODOLOGIES = [
   '52-Week Range',
-  'Public Comps (EV/EBITDA)',
+  'Public Comps (EV/EBITDA & EV/Revenue)',
   'Precedent Transactions',
   'Discounted Cash Flow',
   'LBO Floor Valuation',
+  'Sum-of-the-Parts',
 ] as const;
 
 export type Methodology = (typeof METHODOLOGIES)[number];
@@ -68,19 +69,20 @@ export function range52(b: BaseInputs): MethodRange {
 export function compsRange(b: BaseInputs): MethodRange | null {
   const ms = b.peerMultiples;
   if (ms.length < 2 || !(b.ltmEbitda > 0)) return null;
-  const f = fiveNumber(ms);
+  // PRD v2: 25th / median / 75th percentile of both EV/EBITDA and EV/Revenue, applied to the target.
+  const fe = fiveNumber(ms);
+  const evs = [fe.min, fe.p25, fe.median, fe.p75, fe.max].map((m) => m * b.ltmEbitda);
+  const rs = b.peerRevMultiples;
+  const fr = rs.length >= 2 ? fiveNumber(rs) : null;
+  if (fr) evs.push(...[fr.min, fr.p25, fr.median, fr.p75, fr.max].map((m) => m * b.ltmRevenue));
+  const f = fiveNumber(evs);
   return {
-    methodology: 'Public Comps (EV/EBITDA)',
-    min: f.min * b.ltmEbitda,
-    p25: f.p25 * b.ltmEbitda,
-    median: f.median * b.ltmEbitda,
-    p75: f.p75 * b.ltmEbitda,
-    max: f.max * b.ltmEbitda,
-    basis: `Peer EV / ${b.ltmLabel} EBITDA multiples applied to target ${b.ltmLabel} EBITDA`,
+    methodology: 'Public Comps (EV/EBITDA & EV/Revenue)',
+    ...f,
+    basis: `Peer EV/${b.ltmLabel} EBITDA${fr ? ' and EV/revenue' : ''} percentiles applied to the target's ${b.ltmLabel} figures`,
     detail: [
-      { label: '25th pct', value: mult(f.p25) },
-      { label: 'Median', value: mult(f.median) },
-      { label: '75th pct', value: mult(f.p75) },
+      { label: 'EV/EBITDA median', value: mult(fe.median) },
+      ...(fr ? [{ label: 'EV/Revenue median', value: mult(fr.median) }] : []),
       { label: 'Peers', value: String(ms.length) },
     ],
   };
@@ -91,7 +93,8 @@ export function precedentsRange(b: BaseInputs, a: Assumptions): MethodRange | nu
   if (ms.length < 2 || !(b.ltmEbitda > 0)) return null;
   const base = [percentile(ms, 0.25), percentile(ms, 0.5), percentile(ms, 0.75)];
   const premiums = spread(a.controlPremium, 0.075, 3, 0, 0.6);
-  const evs = base.flatMap((m) => premiums.map((p) => m * (1 + p) * b.ltmEbitda));
+  // Change-of-control payouts (from the proxy) are a cost to the acquirer, so they come off what it can pay.
+  const evs = base.flatMap((m) => premiums.map((p) => m * (1 + p) * b.ltmEbitda - a.cocCost));
   const f = fiveNumber(evs);
   return {
     methodology: 'Precedent Transactions',
@@ -100,6 +103,7 @@ export function precedentsRange(b: BaseInputs, a: Assumptions): MethodRange | nu
     detail: [
       { label: 'Control premium', value: pct(a.controlPremium) },
       { label: 'Implied median', value: mult(base[1] * (1 + a.controlPremium)) },
+      ...(a.cocCost > 0 ? [{ label: 'Less CoC payouts', value: `$${(a.cocCost / 1e6).toFixed(0)}M` }] : []),
     ],
   };
 }
@@ -130,7 +134,7 @@ export function lboRange(b: BaseInputs, a: Assumptions): { range: MethodRange; b
   const base = solveLboFloor(b, a);
   if (!base) return null;
   const evs: number[] = [];
-  for (const lev of spread(a.lboLeverage, 0.5, 3, 1)) {
+  for (const lev of spread(a.lboLeverage, 0.05, 3, 0.1, 0.9)) {
     for (const exit of spread(a.exitMultiple, 1, 3, 1)) {
       const r = solveLboFloor(b, a, lev, exit);
       if (r) evs.push(r.entryEv);
@@ -142,10 +146,11 @@ export function lboRange(b: BaseInputs, a: Assumptions): { range: MethodRange; b
     range: {
       methodology: 'LBO Floor Valuation',
       ...f,
-      basis: `Max entry price for a ${pct(a.lboTargetIrr, 0)} sponsor IRR over 5 years at ${mult(a.lboLeverage - 0.5)}-${mult(a.lboLeverage + 0.5)} Debt/EBITDA`,
+      basis: `Max entry price for a ${pct(a.lboTargetIrr, 0)} sponsor IRR over 5 years with debt funding ${pct(a.lboLeverage - 0.05, 0)}-${pct(a.lboLeverage + 0.05, 0)} of the price`,
       detail: [
         { label: 'Entry multiple', value: mult(base.entryMultiple) },
-        { label: 'Leverage', value: mult(base.debt / b.ltmEbitda) },
+        { label: 'Debt / price', value: pct(base.leverage, 0) },
+        { label: 'Debt / EBITDA', value: mult(base.debt / b.ltmEbitda) },
         { label: 'MoIC', value: mult(base.moic) },
         { label: 'IRR', value: pct(base.irr) },
       ],
@@ -153,9 +158,42 @@ export function lboRange(b: BaseInputs, a: Assumptions): { range: MethodRange; b
   };
 }
 
-export function runValuation(b: BaseInputs, a: Assumptions): ValuationRun {
+export interface SotpLine {
+  label: string;
+  revenue: number;
+  multiple: number; // EV / revenue applied to this segment
+}
+
+export interface SotpInput {
+  axisLabel: string;
+  fyLabel: string;
+  lines: SotpLine[];
+}
+
+/**
+ * Sum-of-the-parts (PRD v2 appendix A): each segment's revenue x its own EV/revenue
+ * multiple. The range flexes every multiple by -20% / -10% / 0 / +10% / +20%.
+ */
+export function sotpRange(s: SotpInput): MethodRange | null {
+  const lines = s.lines.filter((l) => l.revenue > 0 && l.multiple > 0);
+  if (lines.length < 2) return null;
+  const at = (k: number) => lines.reduce((sum, l) => sum + l.revenue * l.multiple * k, 0);
+  const top = [...lines].sort((x, y) => y.revenue * y.multiple - x.revenue * x.multiple).slice(0, 3);
+  return {
+    methodology: 'Sum-of-the-Parts',
+    min: at(0.8),
+    p25: at(0.9),
+    median: at(1),
+    p75: at(1.1),
+    max: at(1.2),
+    basis: `${s.fyLabel} revenue by ${s.axisLabel} (10-K XBRL) x segment EV/revenue multiples, flexed +/-20%`,
+    detail: top.map((l) => ({ label: l.label, value: `${mult(l.multiple)} → $${((l.revenue * l.multiple) / 1e9).toFixed(0)}B` })),
+  };
+}
+
+export function runValuation(b: BaseInputs, a: Assumptions, sotp?: SotpInput | null): ValuationRun {
   const lbo = lboRange(b, a);
-  const ranges = [range52(b), compsRange(b), precedentsRange(b, a), dcfRange(b, a), lbo?.range ?? null].filter(
+  const ranges = [range52(b), compsRange(b), precedentsRange(b, a), dcfRange(b, a), lbo?.range ?? null, sotp ? sotpRange(sotp) : null].filter(
     (r): r is MethodRange => r !== null && Number.isFinite(r.min) && Number.isFinite(r.max),
   );
   const compositeEV = percentile(

@@ -10,7 +10,10 @@ import { TickerNotFoundError } from '@/lib/data/dataset';
 import { valuate } from '@/lib/data/valuate';
 import { evToPrice } from '@/lib/engine/model';
 import { readOverrides, toQuery } from '@/lib/engine/params';
-import { sensitivityWaccGrowth } from '@/lib/engine/valuation';
+import { runValuation, sensitivityWaccGrowth } from '@/lib/engine/valuation';
+import { defaultSotp } from '@/lib/engine/sotp';
+import { percentile } from '@/lib/engine/stats';
+import { getIntel } from '@/lib/data/intel';
 import { date, mm, money, mult, pct, price, signedPct } from '@/lib/format';
 import type { Fact } from '@/lib/types';
 
@@ -34,7 +37,11 @@ export default async function TearSheet({ params, searchParams }: Props) {
     if (e instanceof TickerNotFoundError) notFound();
     throw e;
   }
-  const { ds, b, a, run, wacc, defaults } = r;
+  const { ds, b, a, wacc, defaults } = r;
+  // PRD v2: include the sum-of-the-parts bar when segment data is available.
+  const intel = await getIntel(params.ticker).catch(() => null);
+  const sotp = intel?.segments ? defaultSotp(intel.segments.breakdowns, b.peerRevMultiples.length ? percentile(b.peerRevMultiples, 0.5) : b.currentEV / b.ltmRevenue, `FY${intel.segments.fyEnd.slice(0, 4)}`) : null;
+  const run = sotp ? runValuation(b, a, sotp) : r.run;
   const toPx = (ev: number) => evToPrice(b, ev);
   const rows = run.ranges.map((x) => ({ range: x, min: toPx(x.min), p25: toPx(x.p25), median: toPx(x.median), p75: toPx(x.p75), max: toPx(x.max) }));
   const sens = sensitivityWaccGrowth(b, a);
@@ -87,7 +94,7 @@ export default async function TearSheet({ params, searchParams }: Props) {
                 format={(v) => price(v)}
                 axisFormat={(v) => `$${v.toFixed(0)}`}
                 animate={false}
-                rowHeight={46}
+                rowHeight={run.ranges.length > 5 ? 38 : 46}
               />
             </div>
             <table className="num mt-3 w-full text-[11px]">
@@ -260,7 +267,7 @@ export default async function TearSheet({ params, searchParams }: Props) {
               <KV
                 title="LBO floor"
                 rows={[
-                  ['Leverage', `${mult(a.lboLeverage)} LTM EBITDA`],
+                  ['Debt funding', `${pct(a.lboLeverage, 0)} of price`],
                   ['Target IRR / hold', `${pct(a.lboTargetIrr, 0)} / 5 years`],
                   ['Max entry multiple', mult(run.lbo.entryMultiple)],
                   ['Max entry EV', money(run.lbo.entryEv)],

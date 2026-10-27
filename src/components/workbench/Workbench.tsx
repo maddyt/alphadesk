@@ -6,7 +6,9 @@ import type { Dataset } from '@/lib/types';
 import type { AssumptionKey, Assumptions } from '@/lib/engine/model';
 import { buildBaseInputs, defaultAssumptions, evToPrice, sliderRanges, waccBuild } from '@/lib/engine/model';
 import { resolveAssumptions, toQuery } from '@/lib/engine/params';
-import { runValuation, sensitivityWaccExit, sensitivityWaccGrowth } from '@/lib/engine/valuation';
+import { runValuation, sensitivityWaccExit, sensitivityWaccGrowth, type MethodRange, type SotpInput } from '@/lib/engine/valuation';
+import { defaultSotp } from '@/lib/engine/sotp';
+import { percentile } from '@/lib/engine/stats';
 import { date, money, mult, pct, price, signedPct } from '@/lib/format';
 import { FootballField } from '../charts/FootballField';
 import { Sparkline } from '../charts/Charts';
@@ -18,12 +20,17 @@ import { CompsTab } from './CompsTab';
 import { LboTab } from './LboTab';
 import { FinancialsTab } from './FinancialsTab';
 import { MemoTab } from './MemoTab';
+import { SegmentsTab } from './SegmentsTab';
+import { MethodAuditModal } from './MethodAudit';
+import { GovernancePanel, InsiderPanel, OwnershipPanel, ParachutePanel, RAG_STYLE, useIntel } from '../intel/IntelPanels';
 
 const TABS = [
   { id: 'dcf', label: 'DCF' },
   { id: 'sensitivity', label: 'Sensitivity' },
   { id: 'comps', label: 'Comps & Precedents' },
   { id: 'lbo', label: 'LBO' },
+  { id: 'segments', label: 'Segments & SOTP' },
+  { id: 'governance', label: 'Ownership & Governance' },
   { id: 'financials', label: 'SEC Financials' },
   { id: 'memo', label: 'AI Memo' },
 ] as const;
@@ -31,24 +38,35 @@ type TabId = (typeof TABS)[number]['id'];
 
 const METHOD_TAB: Record<string, TabId> = {
   '52-Week Range': 'financials',
-  'Public Comps (EV/EBITDA)': 'comps',
+  'Public Comps (EV/EBITDA & EV/Revenue)': 'comps',
   'Precedent Transactions': 'comps',
   'Discounted Cash Flow': 'dcf',
   'LBO Floor Valuation': 'lbo',
+  'Sum-of-the-Parts': 'segments',
 };
 
 export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<Assumptions> }) {
   const b = useMemo(() => buildBaseInputs(ds), [ds]);
-  const defaults = useMemo(() => defaultAssumptions(b), [b]);
+  const defaults = useMemo(() => defaultAssumptions(b, ds.macro?.tenYear), [b, ds.macro?.tenYear]);
   const ranges = useMemo(() => sliderRanges(defaults), [defaults]);
   const [a, setA] = useState<Assumptions>(() => resolveAssumptions(defaults, ranges, overrides));
-  const [mode, setMode] = useState<'price' | 'ev'>('price');
+  // PRD v2: one unified enterprise-value axis by default; per-share remains a toggle.
+  const [mode, setMode] = useState<'price' | 'ev'>('ev');
+  const [audit, setAudit] = useState<MethodRange | null>(null);
+  const { intel, loading: intelLoading } = useIntel(b.ticker);
+  const baseRevMultiple = useMemo(() => (b.peerRevMultiples.length ? percentile(b.peerRevMultiples, 0.5) : b.currentEV / b.ltmRevenue), [b]);
+  const sotpDefault = useMemo(
+    () => (intel?.segments ? defaultSotp(intel.segments.breakdowns, baseRevMultiple, `FY${intel.segments.fyEnd.slice(0, 4)}`) : null),
+    [intel, baseRevMultiple],
+  );
+  const [sotp, setSotp] = useState<SotpInput | null>(null);
+  useEffect(() => setSotp(sotpDefault), [sotpDefault]);
   const [tab, setTab] = useState<TabId>('dcf');
   const [copied, setCopied] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
 
-  const run = useMemo(() => runValuation(b, a), [b, a]);
+  const run = useMemo(() => runValuation(b, a, sotp), [b, a, sotp]);
   const wacc = useMemo(() => waccBuild(b, a.riskFree, a.erp, a.taxRate), [b, a.riskFree, a.erp, a.taxRate]);
   const sensG = useMemo(() => sensitivityWaccGrowth(b, a), [b, a]);
   const sensX = useMemo(() => sensitivityWaccExit(b, a), [b, a]);
@@ -102,9 +120,14 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
     setTimeout(() => setCopied(false), 1600);
   }
 
-  function selectMethod(m: string) {
-    setTab(METHOD_TAB[m] ?? 'dcf');
+  function openTab(t: TabId) {
+    setTab(t);
     tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // PRD v2: clicking a bar opens its source audit (accession numbers and derivation).
+  function selectMethod(m: string) {
+    setAudit(run.ranges.find((r) => r.methodology === m) ?? null);
   }
 
   const pos52 = (b.price - b.market52.low) / (b.market52.high - b.market52.low || 1);
@@ -204,7 +227,7 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
           <div className="glow overflow-hidden rounded-2xl bg-panel">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
               <div>
-                <h2 className="text-[15px] font-semibold tracking-tight text-ink">What is {b.name} worth? Five ways to answer</h2>
+                <h2 className="text-[15px] font-semibold tracking-tight text-ink">What is {b.name} worth? {['', '', '', '', 'Four', 'Five', 'Six'][run.ranges.length] ?? run.ranges.length} ways to answer</h2>
                 <p className="mt-0.5 text-xs text-mute">The &ldquo;football field&rdquo; chart bankers use to put several valuations side by side.</p>
               </div>
               <div className="flex rounded-xl border border-line bg-bg/60 p-1 text-xs">
@@ -243,7 +266,7 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
               />
             </div>
             <div className="grid grid-cols-2 gap-px border-t border-line bg-line sm:grid-cols-4">
-              <Summary label="Middle-of-the-road value" value={price(run.compositePrice)} sub="median of the five methods (amber line)" accent />
+              <Summary label="Middle-of-the-road value" value={price(run.compositePrice)} sub={`median of the ${run.ranges.length} methods (amber line)`} accent />
               <Summary label="vs. today's price" value={signedPct(upside)} sub={upside >= 0 ? 'stock looks cheap vs. the methods' : 'stock looks expensive vs. the methods'} tone={upside >= 0 ? 'up' : 'down'} />
               <Summary label="Cash-flow (DCF) value" value={price(evToPrice(b, run.ranges.find((r) => r.methodology === 'Discounted Cash Flow')!.median))} sub={`WACC ${pct(a.wacc, 2)} · g ${pct(a.terminalGrowth, 2)}`} />
               <Summary
@@ -253,6 +276,8 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
               />
             </div>
           </div>
+
+          <Signals intel={intel} loading={intelLoading} ds={ds} a={a} onOpen={() => openTab('governance')} />
 
           {/* --------------------------------------------------------------- Tabs */}
           <div ref={tabsRef} className="scroll-mt-20">
@@ -270,16 +295,59 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
               ))}
             </div>
             <div key={tab} className="animate-fadeup">
-              {tab === 'dcf' && <DcfTab b={b} a={a} run={run} wacc={wacc} />}
+              {tab === 'dcf' && <DcfTab b={b} a={a} run={run} wacc={wacc} macro={ds.macro} />}
               {tab === 'sensitivity' && <SensitivityTab growth={sensG} exit={sensX} current={b.price} />}
               {tab === 'comps' && <CompsTab b={b} a={a} peers={ds.peers} peerBasis={ds.peerBasis} />}
               {tab === 'lbo' && <LboTab b={b} a={a} lbo={run.lbo} />}
+              {tab === 'segments' && (
+                <SegmentsTab
+                  b={b}
+                  intel={intel}
+                  loading={intelLoading}
+                  sotp={sotp}
+                  baseMultiple={baseRevMultiple}
+                  onMultiple={(i, m) => setSotp((s) => (s ? { ...s, lines: s.lines.map((l, k) => (k === i ? { ...l, multiple: m } : l)) } : s))}
+                  onReset={() => setSotp(sotpDefault)}
+                />
+              )}
+              {tab === 'governance' &&
+                (intel ? (
+                  <div className="space-y-5">
+                    <div className="grid gap-5 xl:grid-cols-2">
+                      <GovernancePanel intel={intel} />
+                      <ParachutePanel ticker={b.ticker} intel={intel} applied={a.cocCost} onApply={(v) => setA((p) => ({ ...p, cocCost: v }))} />
+                    </div>
+                    <div className="grid gap-5 xl:grid-cols-2">
+                      <InsiderPanel intel={intel} />
+                      <OwnershipPanel intel={intel} />
+                    </div>
+                    {intel.notes.length > 0 && <p className="text-[11px] text-mute">{intel.notes.join(' ')}</p>}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-line bg-panel/80 p-5 text-sm text-sub">{intelLoading ? 'Loading SEC filings (Form 4, 13D/G, 8-K, DEF 14A)…' : 'Extended SEC feeds unavailable.'}</div>
+                ))}
               {tab === 'financials' && <FinancialsTab company={ds.company} />}
               {tab === 'memo' && <MemoTab ticker={b.ticker} a={a} />}
             </div>
           </div>
         </div>
       </section>
+
+      {audit && (
+        <MethodAuditModal
+          range={run.ranges.find((r) => r.methodology === audit.methodology) ?? audit}
+          ds={ds}
+          b={b}
+          a={a}
+          intel={intel}
+          sotp={sotp}
+          onClose={() => setAudit(null)}
+          onOpenTab={() => {
+            setAudit(null);
+            openTab(METHOD_TAB[audit.methodology] ?? 'dcf');
+          }}
+        />
+      )}
 
       {/* Mobile: keep the answer visible while dragging sliders further down the page. */}
       <div className="no-print fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 px-4 py-2.5 backdrop-blur lg:hidden">
@@ -322,9 +390,9 @@ function Verdict({ name, price: px, above, total, composite, upside }: { name: s
       <span className="text-sub">
         {name} trades at <span className="num font-semibold text-ink">{px}</span>.{' '}
         {above === total
-          ? 'All five methods put its value below that price'
+          ? `All ${total} methods put its value below that price`
           : above === 0
-            ? 'All five methods put its value above that price'
+            ? `All ${total} methods put its value above that price`
             : `${above} of ${total} methods put its value below that price`}
         , and the middle-of-the-road estimate is <span className="num font-semibold text-ink">{composite}</span>
         {rich ? ', so the stock looks expensive on these assumptions: the market expects more growth or profit than the model does.' : cheap ? ', so the stock looks cheap on these assumptions.' : ', roughly in line with the market.'}{' '}
@@ -356,9 +424,48 @@ function ReadingKey({ priceMode }: { priceMode: boolean }) {
         <span className="h-3.5 border-l-2 border-dashed border-mark" /> Today&rsquo;s {priceMode ? 'stock price' : 'market value'}
       </span>
       <span className={item}>
-        <span className="h-3.5 border-l-2 border-dotted border-amber" /> Middle of all five
+        <span className="h-3.5 border-l-2 border-dotted border-amber" /> Middle of all methods
       </span>
       <span className="text-mute">Bars left of the green line say &ldquo;worth less than the price&rdquo;; bars to the right say &ldquo;worth more&rdquo;. Hover a bar for details, click it for the full math.</span>
+    </div>
+  );
+}
+
+/** PRD v2 appendix B/D/E: market signals alongside the football field. */
+function Signals({ intel, loading, ds, a, onOpen }: { intel: ReturnType<typeof useIntel>['intel']; loading: boolean; ds: Dataset; a: Assumptions; onOpen: () => void }) {
+  const chip = 'flex min-w-0 flex-col rounded-xl border px-3.5 py-2.5 text-left transition hover:border-brand/50';
+  const ins = intel?.insiders;
+  const own = intel?.ownership;
+  const gov = intel?.governance;
+  const activists = own?.filter((o) => o.activist).length ?? 0;
+  const wait = loading ? 'Loading…' : 'Live SEC only';
+  return (
+    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+      <button type="button" onClick={onOpen} className={`${chip} ${ins?.signal === 'selling' ? RAG_STYLE.amber.ring : 'border-line bg-panel/70'}`}>
+        <span className="text-[10px] uppercase tracking-wider text-mute">Insiders · Form 4 (12M)</span>
+        <span className="mt-0.5 text-[13px] font-semibold text-ink">{ins ? (ins.signal === 'neutral' ? 'No clear signal' : `Net ${ins.signal}`) : wait}</span>
+        {ins && (
+          <span className="num truncate text-[11px] text-mute">
+            buys {money(ins.buys)} · sales {money(ins.sells)}
+          </span>
+        )}
+      </button>
+      <button type="button" onClick={onOpen} className={`${chip} ${activists ? RAG_STYLE.amber.ring : 'border-line bg-panel/70'}`}>
+        <span className="text-[10px] uppercase tracking-wider text-mute">5%+ holders · 13D/G (24M)</span>
+        <span className="mt-0.5 text-[13px] font-semibold text-ink">{own ? (activists ? `${activists} activist filing${activists > 1 ? 's' : ''}` : `${own.length} passive filing${own.length === 1 ? '' : 's'}`) : wait}</span>
+      </button>
+      <button type="button" onClick={onOpen} className={`${chip} ${gov ? RAG_STYLE[gov.rating].ring : 'border-line bg-panel/70'}`}>
+        <span className="text-[10px] uppercase tracking-wider text-mute">Accounting · 8-K (24M)</span>
+        <span className={`mt-0.5 text-[13px] font-semibold ${gov ? RAG_STYLE[gov.rating].text : 'text-ink'}`}>
+          {gov ? (gov.rating === 'green' ? 'Clean' : gov.rating === 'amber' ? 'Watch' : 'Red flag') : wait}
+        </span>
+        {gov && gov.flags.filter((f) => f.severity !== 'info').length > 0 && <span className="truncate text-[11px] text-mute">{gov.flags.find((f) => f.severity !== 'info')?.title}</span>}
+      </button>
+      <div className={`${chip} border-line bg-panel/70`}>
+        <span className="text-[10px] uppercase tracking-wider text-mute">Risk-free · 10Y Treasury</span>
+        <span className="num mt-0.5 text-[13px] font-semibold text-ink">{pct(a.riskFree, 2)}</span>
+        <span className="truncate text-[11px] text-mute">{ds.macro?.date ? `as of ${date(ds.macro.date)}` : 'static default'}</span>
+      </div>
     </div>
   );
 }

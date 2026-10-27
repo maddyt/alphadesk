@@ -80,7 +80,7 @@ test('all five methodologies produce ordered ranges for every snapshot ticker', 
     const run = runValuation(b, a);
     assert.deepEqual(
       run.ranges.map((r) => r.methodology),
-      [...METHODOLOGIES],
+      METHODOLOGIES.slice(0, 5),
       `${t} methodologies`,
     );
     for (const r of run.ranges) {
@@ -141,4 +141,21 @@ test('memo verifier accepts engine figures and flags invented ones', async () =>
       ['37.9x', false],
     ],
   );
+});
+
+test('PRD v2: slider bands, LBO debt as % of price, SOTP and change-of-control adjustment', async () => {
+  const { sliderRanges } = await import('../src/lib/engine/model.ts');
+  const { sotpRange } = await import('../src/lib/engine/valuation.ts');
+  const { b, a } = setup('AAPL');
+  const r = sliderRanges(a);
+  assert.ok(close(r.wacc.max - a.wacc, 0.02) && close(a.terminalGrowth - r.terminalGrowth.min, 0.01) && close(r.exitMultiple.max - a.exitMultiple, 2));
+  const lbo = solveLboFloor(b, a)!;
+  assert.ok(close(lbo.debt / lbo.entryEv, 0.55));
+  const withCoc = solveLboFloor(b, { ...a, cocCost: 5e9 })!;
+  assert.ok(withCoc.entryEv < lbo.entryEv, 'payouts lower what a sponsor can pay');
+  const s = sotpRange({ axisLabel: 'product', fyLabel: 'FY2024', lines: [{ label: 'A', revenue: 100, multiple: 5 }, { label: 'B', revenue: 50, multiple: 2 }] })!;
+  assert.equal(s.median, 600);
+  assert.ok(close(s.min, 480) && close(s.max, 720));
+  const run = runValuation(b, a, { axisLabel: 'product', fyLabel: 'FY2024', lines: [{ label: 'A', revenue: 1e11, multiple: 5 }, { label: 'B', revenue: 1e11, multiple: 2 }] });
+  assert.equal(run.ranges.at(-1)!.methodology, 'Sum-of-the-Parts');
 });

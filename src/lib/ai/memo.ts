@@ -106,7 +106,7 @@ function templateMemo(ctx: { ticker: string; name: string; peerBasis: string; fa
   const where = gap < -0.1 ? 'above' : gap > 0.1 ? 'below' : 'in line with';
   const methods = [
     ['w52', '52-Week Range'],
-    ['comps', 'Public Comps (EV/EBITDA)'],
+    ['comps', 'Public Comps (EV/EBITDA & EV/Revenue)'],
     ['precedents', 'Precedent Transactions'],
     ['dcf', 'Discounted Cash Flow'],
     ['lbo', 'LBO Floor Valuation'],

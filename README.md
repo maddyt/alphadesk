@@ -9,6 +9,24 @@ Both layouts are responsive. On phones the controls move below the results, and 
 
 ---
 
+## PRD v2 additions (both apps)
+
+**Extended SEC feeds** (`src/lib/sec/feeds.ts`, parsers in `src/lib/sec/parsers.ts`, cached 12h; Supabase `feed_cache` when configured). These load after the page renders, so they never slow the first view:
+
+| Appendix | What the app does | Source |
+|---|---|---|
+| A. Segment & geographic revenue | Parses dimensional XBRL (product/service, business segment, geography axes) from the latest 10-K's own instance document plus its label linkbase. Subtotal members are removed automatically. Powers the **Sum-of-the-Parts** football-field row (editable per-segment EV/revenue multiples) and DealPulse's product/geographic **overlap** check | 10-K `*_htm.xml` + `*_lab.xml` |
+| B. Insider & ownership signals | Form 4: open-market buys (P) and sells (S) over the last 12 months, with a C-suite signal. Schedule 13D/13G (5%+ holders) over 24 months, with 13D flagged as activist. *13F institutional holdings are filed per fund, not per company, so they need a licensed aggregator and are not included* | Form 4 XML, `.hdr.sgml` headers |
+| C. Golden parachutes | On demand, Claude extracts the DEF 14A change-in-control payments table under a Zod schema. Every dollar figure must appear verbatim in the filing or it is excluded. One click applies the total as a cost: deducted in Precedents/LBO, or added to DealPulse uses | DEF 14A (needs `ANTHROPIC_API_KEY`) |
+| D. Accounting audit scorecard | Scans 24 months of 8-Ks: Item 4.02 restatement = red; 4.01 auditor change, 10-K/A and NT filings = amber. Shown under the football field and as a 5th DealPulse scorecard card for the target | `submissions` API `items` field |
+| E. Live cost of capital | U.S. Treasury daily par yield curve, falling back to FRED DGS10. The 10Y is the DCF risk-free rate (yield-curve chart in the WACC card). DealPulse's new-debt rate = 10Y + a credit spread for pro-forma leverage | home.treasury.gov |
+
+**ValuationEngine changes:** comps apply both EV/EBITDA and EV/Revenue percentiles; LBO debt is 50–60% of the price (no longer 5–6x EBITDA); sliders span WACC ±2.0%, terminal growth ±1.0% and exit multiple ±2.0x around the base case; the default axis is enterprise value; **clicking a bar opens a Source Audit modal** with the derivation and every XBRL fact (tag, period, form, accession link); parsed balance sheets are Zod-checked for Assets = Liabilities + Equity.
+
+**DealPulse changes:** EPS uses diluted weighted-average shares; the debt-rate slider is always visible; target alerts (activist 13D, insider selling, 8-K flags) appear under the company cards; there's a new "Overlap & target diligence" tab; transaction costs (golden parachutes) flow through sources & uses, the EPS math and the teaser.
+
+---
+
 ## DealPulse: M&A accretion/dilution
 
 Pick a buyer and a target (e.g. `/deals/DIS/EA`). The app fetches both companies' SEC filings and live prices, then answers the first question every banker asks: **does the deal raise or lower the buyer's EPS?**
@@ -97,7 +115,7 @@ With no keys at all, the app works fully in live mode: SEC EDGAR and Yahoo price
 ### 2. Supabase (optional: persistent cache, "recently valued" feed, saved deal teardowns)
 
 1. Create a project at supabase.com.
-2. In the SQL editor, run `supabase/migrations/0001_valuation_engine.sql` and `0002_saved_deals.sql`.
+2. In the SQL editor, run `supabase/migrations/0001_valuation_engine.sql`, `0002_saved_deals.sql` and `0003_feed_cache.sql`.
 3. Copy the **Project URL** and the **service_role key** (Settings → API).
 
 All database access is server-side with the service-role key. RLS is enabled with no policies, so the public anon key can do nothing.

@@ -8,9 +8,9 @@ const close = (a: number, b: number, rel = 1e-9) => Math.abs(a - b) <= rel * Mat
 const co = (t: string) => toDealCompany(snapshotCompany(t)!, snapshotMarket(t)!);
 
 // Hand-checkable toy deal.
-const acq: DealCompany = { ...co('DIS'), price: 50, shares: 100, marketCap: 5000, netIncome: 500, eps: 5 };
-const tgt: DealCompany = { ...co('EA'), price: 20, shares: 50, marketCap: 1000, netIncome: 80, eps: 1.6 };
-const base: DealAssumptions = { premium: 0.3, cashPct: 0.2, stockPct: 0.5, debtPct: 0.3, synergies: 40, debtRate: 0.06, cashRate: 0.04, taxRate: 0.25 };
+const acq: DealCompany = { ...co('DIS'), price: 50, shares: 100, dilutedShares: 100, marketCap: 5000, netIncome: 500, eps: 5 };
+const tgt: DealCompany = { ...co('EA'), price: 20, shares: 50, dilutedShares: 50, marketCap: 1000, netIncome: 80, eps: 1.6 };
+const base: DealAssumptions = { premium: 0.3, cashPct: 0.2, stockPct: 0.5, debtPct: 0.3, synergies: 40, debtRate: 0.06, cashRate: 0.04, taxRate: 0.25, transactionCosts: 0 };
 
 test('PRD section 4 formulas, step by step', () => {
   const r = runDeal(acq, tgt, base);
@@ -66,4 +66,33 @@ test('snapshot pair produces a sane teardown and scorecard', () => {
   assert.deepEqual(risk.map((x) => x.id), ['antitrust', 'credit', 'integration', 'eps']);
   const g = gridPremiumSynergies(A, T, a, 1e9);
   assert.ok(g.values[0][4] > g.values[4][0], 'cheaper and more synergies is more accretive');
+});
+
+test('PRD v2: diluted-share EPS, transaction costs, Treasury-based debt rate, governance scorecard', () => {
+  const A = { ...acq, dilutedShares: 110 };
+  const r = runDeal(A, tgt, base);
+  assert.ok(close(r.standaloneEps, 500 / 110), 'EPS uses diluted shares');
+  const withCosts = runDeal(acq, tgt, { ...base, transactionCosts: 100 });
+  assert.ok(close(withCosts.totalUses, 1300 + 100));
+  assert.ok(close(withCosts.newDebt, 1400 * 0.3));
+  assert.ok(withCosts.accretion < runDeal(acq, tgt, base).accretion, 'costs are dilutive');
+  const d = defaultDealAssumptions(co('DIS'), co('EA'), 0.042);
+  assert.ok(d.debtRate > 0.042 && d.debtRate <= 0.042 + 0.035 + 1e-9);
+  const risk = riskScorecard(acq, tgt, base, r, { targetGovernance: { rating: 'red', flags: ['8-K Item 4.02'] }, activist: 'Activist LP' });
+  const g = risk.find((x) => x.id === 'governance')!;
+  assert.equal(g.rating, 'red');
+  assert.ok(g.detail.includes('Activist LP'));
+  assert.equal(riskScorecard(acq, tgt, base, r, { productOverlap: 0.6 })[0].headline.includes('product overlap'), true);
+});
+
+test('segment overlap: geography mix and product-line matching', async () => {
+  const { geoOverlap, productOverlap } = await import('../src/lib/deals/overlap.ts');
+  const bd = (axis: 'product' | 'geography', rows: [string, number][]) => ({ axis, axisQName: 'x', lines: rows.map(([label, value]) => ({ member: label, label, value })), total: rows.reduce((s, r) => s + r[1], 0), reconciles: true });
+  const g1 = bd('geography', [['United States', 60], ['Europe', 40]]);
+  const g2 = bd('geography', [['Americas', 60], ['EMEA', 40]]);
+  assert.ok(Math.abs(geoOverlap(g1, g2)! - 1) < 1e-9);
+  assert.ok(Math.abs(geoOverlap(g1, bd('geography', [['Japan', 100]]))!) < 1e-9);
+  const p = productOverlap(bd('product', [['Gaming', 30], ['Streaming', 70]]), bd('product', [['Mobile games', 50], ['Console gaming', 50]]))!;
+  assert.equal(p.share, 0.5);
+  assert.deepEqual(p.matches, ['Console gaming']);
 });

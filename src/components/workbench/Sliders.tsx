@@ -37,7 +37,7 @@ const GROUPS: { title: string; hint: string; items: Item[] }[] = [
     hint: 'moves Precedents and LBO',
     items: [
       { key: 'controlPremium', label: 'Takeover premium', term: 'Control premium', fmt: 'pct', help: 'Extra a buyer typically pays over the market price to take control. Higher → higher Precedents bar.' },
-      { key: 'lboLeverage', label: 'Borrowing used by a buyout fund', term: 'Debt / EBITDA', fmt: 'x', help: 'Debt raised as a multiple of yearly profit. More debt → fund can pay more.' },
+      { key: 'lboLeverage', label: 'Share of price borrowed by a buyout fund', term: 'Debt / price', fmt: 'pct', help: 'Private-equity buyers typically fund 50–60% of the price with debt. More debt → fund can pay more.' },
       { key: 'lboTargetIrr', label: "Fund's target return", term: 'Target IRR', fmt: 'pct', help: 'Yearly return a private-equity buyer insists on. Higher → it can pay less → lower floor.' },
       { key: 'lboInterestRate', label: 'Interest rate on that debt', term: 'Cost of debt', fmt: 'pct', help: 'Higher interest eats cash flow → fund can pay less.' },
     ],

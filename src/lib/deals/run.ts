@@ -3,14 +3,15 @@ import { defaultDealAssumptions, riskScorecard, runDeal, synergyMax, type DealAs
 import { resolveDeal } from './params.ts';
 import { DealOutputSchema, type DealOutput } from './schema.ts';
 import { getDealPair } from './data.ts';
+import { getYieldCurve } from '../market/treasury.ts';
 
 /** Server-side teardown: the same engine the browser runs, from cached SEC data. */
 export async function dealRun(acquirer: string, target: string, overrides: Partial<DealAssumptions> = {}) {
-  const { A, T, warnings } = await getDealPair(acquirer, target);
-  const defaults = defaultDealAssumptions(A, T);
+  const [{ A, T, warnings }, macro] = await Promise.all([getDealPair(acquirer, target), getYieldCurve()]);
+  const defaults = defaultDealAssumptions(A, T, macro.date ? macro.tenYear : undefined);
   const a = resolveDeal(defaults, overrides, synergyMax(T, A));
   const r = runDeal(A, T, a);
-  return { A, T, warnings, defaults, a, r, risk: riskScorecard(A, T, a, r) };
+  return { A, T, warnings, defaults, a, r, risk: riskScorecard(A, T, a, r), macro };
 }
 
 export function toDealOutput(d: Awaited<ReturnType<typeof dealRun>>): DealOutput {

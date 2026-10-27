@@ -47,6 +47,8 @@ export interface BaseInputs {
   beta: number;
   preTaxKd: number;
   peerMultiples: number[];
+  /** Peer EV / revenue multiples after the same outlier screen. */
+  peerRevMultiples: number[];
   /** Peers dropped as outliers (more than 3x away from the peer median), shown as "NM". */
   peerExcluded: string[];
   market52: { low: number; p25: number; median: number; p75: number; high: number };
@@ -60,11 +62,14 @@ export interface Assumptions {
   ebitMargin: number;
   taxRate: number;
   controlPremium: number;
+  /** Acquisition debt as a share of the purchase price (PRD v2: 50-60%). */
   lboLeverage: number;
   lboTargetIrr: number;
   lboInterestRate: number;
   riskFree: number;
   erp: number;
+  /** One-off change-of-control payouts from the proxy, deducted in takeover-based methods. */
+  cocCost: number;
 }
 
 export interface SliderRange {
@@ -179,7 +184,7 @@ export function buildBaseInputs(ds: Dataset): BaseInputs {
   };
 }
 
-function screenPeers(ds: Dataset): { peerMultiples: number[]; peerExcluded: string[] } {
+function screenPeers(ds: Dataset): { peerMultiples: number[]; peerRevMultiples: number[]; peerExcluded: string[] } {
   const valid = ds.peers.filter((p) => Number.isFinite(p.evEbitda) && p.evEbitda > 0 && p.evEbitda < 80);
   const med = percentile(
     valid.map((p) => p.evEbitda),
@@ -188,6 +193,7 @@ function screenPeers(ds: Dataset): { peerMultiples: number[]; peerExcluded: stri
   const keep = valid.filter((p) => p.evEbitda <= med * 3 && p.evEbitda >= med / 3);
   return {
     peerMultiples: keep.map((p) => p.evEbitda),
+    peerRevMultiples: keep.map((p) => p.evRevenue).filter((m): m is number => m !== null && Number.isFinite(m) && m > 0 && m < 60),
     peerExcluded: ds.peers.filter((p) => !keep.includes(p)).map((p) => p.ticker),
   };
 }
@@ -245,29 +251,31 @@ export function defaultAssumptions(b: BaseInputs, riskFree = RISK_FREE_DEFAULT, 
     ebitMargin: round(clamp(b.ebitMargin0, -0.2, 0.75), 0.0025),
     taxRate: round(b.taxRate0, 0.005),
     controlPremium: 0.225,
-    lboLeverage: 5.5,
+    lboLeverage: 0.55,
     lboTargetIrr: 0.2,
     lboInterestRate: 0.085,
     riskFree,
     erp,
+    cocCost: 0,
   };
 }
 
-/** Slider bounds. PRD ranges are the defaults, widened only when the company's own data sits outside them. */
+/** Slider bounds. PRD v2: WACC +/-2.0%, terminal growth +/-1.0% and exit multiple +/-2.0x around the base case. */
 export function sliderRanges(a: Assumptions): Record<AssumptionKey, SliderRange> {
   return {
-    wacc: { min: Math.min(0.06, a.wacc), max: Math.max(0.12, a.wacc), step: 0.0025 },
-    terminalGrowth: { min: 0.01, max: 0.04, step: 0.0025 },
-    exitMultiple: { min: Math.min(8, Math.floor(a.exitMultiple * 0.6)), max: Math.max(14, Math.ceil(a.exitMultiple * 1.4)), step: 0.5 },
+    wacc: { min: Math.max(0.03, a.wacc - 0.02), max: a.wacc + 0.02, step: 0.0025 },
+    terminalGrowth: { min: Math.max(0, a.terminalGrowth - 0.01), max: a.terminalGrowth + 0.01, step: 0.0025 },
+    exitMultiple: { min: Math.max(1, a.exitMultiple - 2), max: a.exitMultiple + 2, step: 0.25 },
     revenueGrowth: { min: -0.05, max: Math.max(0.3, a.revenueGrowth), step: 0.005 },
     ebitMargin: { min: Math.min(0, a.ebitMargin), max: Math.max(0.6, a.ebitMargin + 0.1), step: 0.0025 },
     taxRate: { min: 0.1, max: 0.3, step: 0.005 },
     controlPremium: { min: 0.15, max: 0.3, step: 0.0125 },
-    lboLeverage: { min: 4, max: 7, step: 0.25 },
+    lboLeverage: { min: 0.4, max: 0.7, step: 0.025 },
     lboTargetIrr: { min: 0.15, max: 0.3, step: 0.0125 },
     lboInterestRate: { min: 0.06, max: 0.12, step: 0.0025 },
     riskFree: { min: 0.02, max: 0.06, step: 0.0025 },
     erp: { min: 0.04, max: 0.07, step: 0.0025 },
+    cocCost: { min: 0, max: Math.max(1, a.cocCost * 2), step: 1 },
   };
 }
 
