@@ -1,34 +1,15 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentId, RiskReport, RoomEvent, SynergyReport } from '@/lib/agents/room';
 import type { AuditOut } from '@/lib/agents/schemas';
-import type { PhaseRow, Usage, VerifiedCite } from '@/lib/agents/verify';
-import type { ToolCall } from '@/lib/agents/agents';
+import type { PhaseRow, VerifiedCite } from '@/lib/agents/verify';
+import { freshRoom as fresh, hasResults, loadRun, reduceRoom as reduce, roomFromEvents, saveRunLocal, type RoomState, type SavedRun } from '@/lib/agents/room-state';
 import { money, pct, signedPct } from '@/lib/format';
 import { Badge, Card } from '../ui';
 
 type Mode = 'focused' | 'whole';
-type StartEvent = Extract<RoomEvent, { type: 'start' }>;
-
-interface RoomState {
-  status: 'idle' | 'running' | 'done' | 'error' | 'needs_key';
-  message?: string;
-  start?: StartEvent;
-  agents: Record<AgentId, { status: 'waiting' | 'running' | 'done' | 'error'; ms?: number; message?: string; at?: number }>;
-  tools: (ToolCall & { agent: AgentId })[];
-  audit?: AuditOut;
-  synergy?: { data: SynergyReport; phase: PhaseRow[] };
-  risk?: RiskReport;
-  usage?: { usage: Usage; costUsd: number; model: string };
-  ms?: number;
-}
-
-const fresh = (): RoomState => ({
-  status: 'idle',
-  agents: { audit: { status: 'waiting' }, synergy: { status: 'waiting' }, risk: { status: 'waiting' } },
-  tools: [],
-});
 
 const AGENTS: { id: AgentId; name: string; does: string }[] = [
   { id: 'audit', name: 'Model Audit', does: 'Checks every XBRL input, period and adjustment behind the EPS math' },
@@ -36,41 +17,38 @@ const AGENTS: { id: AgentId; name: string; does: string }[] = [
   { id: 'risk', name: 'Risk & Governance', does: 'Investigates the target through the SEC EDGAR MCP tools' },
 ];
 
-function reduce(s: RoomState, e: RoomEvent): RoomState {
-  switch (e.type) {
-    case 'needs_key':
-      return { ...s, status: 'needs_key', message: e.message };
-    case 'error':
-      return { ...s, status: 'error', message: e.message };
-    case 'start':
-      return { ...s, start: e };
-    case 'agent':
-      return { ...s, agents: { ...s.agents, [e.agent]: { status: e.status, ms: e.ms, message: e.message, at: Date.now() } } };
-    case 'tool':
-      return { ...s, tools: [...s.tools, { ...e.call, agent: e.agent }] };
-    case 'audit':
-      return { ...s, audit: e.data };
-    case 'synergy':
-      return { ...s, synergy: { data: e.data, phase: e.phase } };
-    case 'risk':
-      return { ...s, risk: e.data };
-    case 'usage':
-      return { ...s, usage: { usage: e.usage, costUsd: e.costUsd, model: e.model } };
-    case 'done':
-      return { ...s, status: 'done', ms: e.ms };
-  }
-}
-
 export function DealRoomTab({ acquirer, target, query, currentSynergies, onApplySynergies }: { acquirer: string; target: string; query: string; currentSynergies: number; onApplySynergies: (v: number) => void }) {
   const [mode, setMode] = useState<Mode>('focused');
   const [s, setS] = useState<RoomState>(fresh);
+  const [saved, setSaved] = useState<SavedRun | null>(null);
   const abort = useRef<AbortController | null>(null);
+
+  // Bring back the last run for this pair (this browser first, else the server copy).
+  useEffect(() => {
+    let live = true;
+    loadRun(acquirer, target).then((run) => {
+      if (!live || !run || !hasResults(run.events)) return;
+      setSaved(run);
+      setMode(run.mode);
+      setS((p) => (p.status === 'idle' ? roomFromEvents(run.events) : p));
+    });
+    return () => {
+      live = false;
+    };
+  }, [acquirer, target]);
 
   async function run(refresh = false) {
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
     setS({ ...fresh(), status: 'running' });
+    const events: RoomEvent[] = [];
+    const persist = () => {
+      if (!hasResults(events)) return;
+      const run: SavedRun = { v: 1, acquirer, target, query: query.replace(/^\?/, ''), mode, savedAt: new Date().toISOString(), events };
+      saveRunLocal(run);
+      setSaved(run);
+    };
     try {
       const res = await fetch('/api/deals/room', {
         method: 'POST',
@@ -88,10 +66,17 @@ export function DealRoomTab({ acquirer, target, query, currentSynergies, onApply
         buf += dec.decode(value, { stream: true });
         const lines = buf.split('\n');
         buf = lines.pop() ?? '';
-        for (const l of lines) if (l.trim()) setS((p) => reduce(p, JSON.parse(l) as RoomEvent));
+        for (const l of lines) {
+          if (!l.trim()) continue;
+          const e = JSON.parse(l) as RoomEvent;
+          events.push(e);
+          setS((p) => reduce(p, e));
+        }
       }
       setS((p) => (p.status === 'running' ? { ...p, status: 'done' } : p));
+      persist();
     } catch (e) {
+      persist(); // keep whatever the agents finished before the stream broke
       if ((e as Error).name !== 'AbortError') setS((p) => ({ ...p, status: 'error', message: (e as Error).message }));
     }
   }
@@ -157,6 +142,7 @@ export function DealRoomTab({ acquirer, target, query, currentSynergies, onApply
           </div>
           <McpCallout />
         </div>
+        {saved && !running && <SavedBar run={saved} />}
         {s.status === 'needs_key' && <Notice tone="amber">{s.message}</Notice>}
         {s.status === 'error' && <Notice tone="down">{s.message}</Notice>}
       </Card>
@@ -175,6 +161,31 @@ export function DealRoomTab({ acquirer, target, query, currentSynergies, onApply
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function SavedBar({ run }: { run: SavedRun }) {
+  const teaser = `/deals/${run.acquirer}/${run.target}/teaser${run.query ? `?${run.query}` : ''}`;
+  function download() {
+    const blob = new Blob([JSON.stringify(run, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `dealpulse-${run.acquirer}-${run.target}-deal-room-${run.savedAt.slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-mark/30 bg-mark/5 px-4 py-2.5 text-[12px]">
+      <span className="text-mark">
+        ✓ Saved {new Date(run.savedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} · included in the deal teaser export
+      </span>
+      <Link href={teaser} target="_blank" className="font-semibold text-[#8DB4FF] hover:underline">
+        Export teaser with AI findings ↗
+      </Link>
+      <button type="button" onClick={download} className="text-[#8DB4FF] hover:underline">
+        Download full results (JSON)
+      </button>
     </div>
   );
 }

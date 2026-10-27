@@ -5,6 +5,8 @@ import { MODEL } from '../ai/memo.ts';
 import { extractParachutes, type ProxyResult } from '../ai/proxy.ts';
 import { cacheGet, cachePut } from '../data/cache.ts';
 import { getIntel } from '../data/intel.ts';
+import { normalizeTicker } from '../data/dataset.ts';
+import { hasResults, type SavedRun } from './room-state.ts';
 import { buildDealFacts } from '../deals/facts.ts';
 import { readDealOverrides } from '../deals/params.ts';
 import { dealRun } from '../deals/run.ts';
@@ -40,6 +42,13 @@ export type RoomEvent =
   | { type: 'error'; message: string };
 
 const TTL = 24 * 3600_000;
+const SAVED_TTL = 30 * 24 * 3600_000;
+const latestKey = (a: string, t: string) => `room:latest:${a}:${t}`;
+
+/** The most recent saved Deal Room run for a pair (memory, or Supabase feed_cache when configured). */
+export async function latestRun(acquirer: string, target: string): Promise<SavedRun | null> {
+  return (await cacheGet<SavedRun>(latestKey(normalizeTicker(acquirer), normalizeTicker(target)), SAVED_TTL)) ?? null;
+}
 
 function sourceDoc(d: FilingDoc | null, label: string): SourceDoc | undefined {
   return d ? { text: d.text, label, form: d.form, accessionNumber: d.accessionNumber, filingDate: d.filingDate, url: d.url } : undefined;
@@ -158,6 +167,8 @@ export async function* runDealRoom(input: { acquirer: string; target: string; qu
     await new Promise<void>((r) => (wake = r));
     wake = null;
   }
+  // Keep every run that produced something, even if one agent failed, so it can be exported.
+  if (hasResults(log)) await cachePut<SavedRun>(latestKey(d.A.ticker, d.T.ticker), { v: 1, acquirer: d.A.ticker, target: d.T.ticker, query: input.query, mode: input.mode, savedAt: new Date().toISOString(), events: log });
   if (!failed.length) await cachePut(key, log);
 }
 

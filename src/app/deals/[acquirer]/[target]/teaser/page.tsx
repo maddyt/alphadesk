@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { PrintButton } from '@/components/PrintButton';
 import { ScaleToFit } from '@/components/ScaleToFit';
 import { WaterfallSvg } from '@/components/deals/DealCharts';
+import { DealRoomExport } from '@/components/deals/DealRoomExport';
 import { waterSteps } from '@/components/deals/steps';
 import { LIGHT } from '@/components/charts/theme';
 import { Logo } from '@/components/ui';
@@ -212,6 +213,7 @@ export default async function Teaser({ params, searchParams }: Props) {
           </section>
         </ScaleToFit>
       </div>
+      <DealRoomExport acquirer={A.ticker} target={T.ticker} query={dealQuery(a, defaults)} backHref={`/deals/${A.ticker}/${T.ticker}${dealQuery(a, defaults)}`} />
     </div>
   );
 }

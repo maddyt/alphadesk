@@ -125,7 +125,7 @@ input[type='range'].slider:focus-visible::-webkit-slider-thumb {
     transform: none !important;
   }
   .page {
-    break-after: page;
+    break-before: page; /* a forced break before the first page is ignored, so no trailing blank page */
     box-shadow: none !important;
     margin: 0 !important;
   }

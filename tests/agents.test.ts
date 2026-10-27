@@ -144,3 +144,23 @@ test('synergy phase-in reruns the engine year by year', () => {
 test('token cost estimate', () => {
   assert.ok(Math.abs(costUsd({ input: 1e6, output: 1e5, cacheRead: 0, cacheWrite: 0 }) - 6) < 1e-9);
 });
+
+import { hasResults, roomFromEvents } from '../src/lib/agents/room-state.ts';
+
+test('saved runs rebuild the Deal Room view, including partial runs', () => {
+  const events = [
+    { type: 'agent', agent: 'audit', status: 'running' },
+    { type: 'agent', agent: 'risk', status: 'running' },
+    { type: 'audit', data: { verdict: 'clean', summary: 'ok', findings: [] } },
+    { type: 'agent', agent: 'audit', status: 'done', ms: 1000 },
+    { type: 'tool', agent: 'risk', call: { name: 'list_filings', input: { ticker: 'EA' }, ms: 5, chars: 10, ok: true } },
+    { type: 'agent', agent: 'risk', status: 'error', message: 'timeout' },
+  ] as Parameters<typeof roomFromEvents>[0];
+  assert.equal(hasResults(events), true);
+  assert.equal(hasResults(events.filter((e) => e.type !== 'audit')), false);
+  const s = roomFromEvents(events); // stream ended without "done"
+  assert.equal(s.status, 'done');
+  assert.equal(s.audit?.verdict, 'clean');
+  assert.equal(s.agents.risk.status, 'error');
+  assert.equal(s.tools.length, 1);
+});

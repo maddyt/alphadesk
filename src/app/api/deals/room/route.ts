@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { runDealRoom } from '@/lib/agents/room';
+import { latestRun, runDealRoom } from '@/lib/agents/room';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,4 +32,18 @@ export async function POST(req: Request) {
     },
   });
   return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' } });
+}
+
+// GET /api/deals/room?acquirer=MSFT&target=EA -> the latest saved run for the pair (404 if none).
+export async function GET(req: Request) {
+  const u = new URL(req.url);
+  const acquirer = u.searchParams.get('acquirer');
+  const target = u.searchParams.get('target');
+  if (!acquirer || !target) return NextResponse.json({ error: 'Expected ?acquirer=&target=' }, { status: 400 });
+  try {
+    const run = await latestRun(acquirer, target);
+    return run ? NextResponse.json(run, { headers: { 'Cache-Control': 'no-store' } }) : NextResponse.json({ error: 'No saved Deal Room run' }, { status: 404 });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
 }
