@@ -369,6 +369,20 @@ function CompanyCard({ c, role }: { c: DealCompany; role: string }) {
           <div className="truncate text-[11px] text-mute">{c.sicDescription ?? '—'}</div>
         </div>
       </div>
+      {c.accounting.foreign && (
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <span className="rounded-md border border-[#A78BFA]/40 bg-[#A78BFA]/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-[#C4B5FD]">
+            🌐 {c.accounting.standard} · {c.accounting.form}
+          </span>
+          {c.accounting.currency !== 'USD' && (
+            <span className="num rounded-md bg-raised px-1.5 py-0.5 text-[10.5px] text-sub">
+              {c.accounting.currency}→USD {c.accounting.fxRate ? c.accounting.fxRate.toFixed(4) : ''}
+            </span>
+          )}
+          {c.leaseAdjustment > 0 && <span className="rounded-md bg-raised px-1.5 py-0.5 text-[10.5px] text-sub">IFRS 16 lease-adjusted EBITDA</span>}
+          <span className="rounded-md bg-raised px-1.5 py-0.5 text-[10.5px] text-sub">annual data</span>
+        </div>
+      )}
       <div className="num mt-3 grid grid-cols-4 gap-2 text-[11px]">
         <Fig k="Price" v={price(c.price)} />
         <Fig k="Mkt cap" v={money(c.marketCap)} />
@@ -558,11 +572,33 @@ function SecData({ A, T }: { A: DealCompany; T: DealCompany }) {
                 <td className={td}>{price(A.price)}</td>
                 <td className={td}>{price(T.price)}</td>
               </tr>
+              <tr className="border-b border-line/40">
+                <td className={`${td} text-ink`}>Reporting basis</td>
+                {[A, T].map((c) => (
+                  <td key={c.ticker} className={td}>
+                    {c.accounting.standard} · {c.accounting.form} · {c.accounting.currency}
+                    {c.accounting.fxRate ? ` @ ${c.accounting.fxRate.toFixed(4)}` : ''}
+                  </td>
+                ))}
+              </tr>
+              {(A.leaseAdjustment > 0 || T.leaseAdjustment > 0) && (
+                <tr className="border-b border-line/40">
+                  <td className={`${td} text-ink`}>
+                    IFRS 16 lease adjustment
+                    <div className="text-[10.5px] text-mute">EBITDA as reported − lease payments − lease interest</div>
+                  </td>
+                  {[A, T].map((c) => (
+                    <td key={c.ticker} className={td}>
+                      {c.leaseAdjustment > 0 ? `${money(c.ebitdaReported)} − ${money(c.leaseAdjustment)}` : '—'}
+                    </td>
+                  ))}
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
         <p className="mt-3 text-[11px] text-mute">
-          Prices: {A.priceSource} / {T.priceSource}. Cash includes short-term investments.
+          Prices: {A.priceSource} / {T.priceSource}. Cash includes short-term investments. Foreign filers: figures converted to USD at spot and shares expressed per US-listed ADR; audit facts show the as-reported currency.
         </p>
       </Card>
       {sel && <AuditModal cik={sel.c.cik} live={sel.c.source === 'sec-live'} sel={{ item: sel.item, period: sel.label }} onClose={() => setSel(null)} />}

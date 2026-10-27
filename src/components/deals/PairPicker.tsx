@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-const TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'META', 'AMZN', 'NVDA', 'AMD', 'AVGO', 'QCOM', 'INTC', 'ORCL', 'CRM', 'ADBE', 'DIS', 'EA', 'TTWO', 'NFLX', 'CMCSA', 'WBD', 'KO', 'PEP', 'MDLZ', 'KHC', 'COST', 'WMT', 'TGT', 'HD', 'LOW', 'NKE', 'LULU', 'PFE', 'MRK', 'LLY', 'ABBV', 'XOM', 'CVX', 'COP', 'BA', 'LMT', 'RTX', 'MCD', 'SBUX', 'CMG'];
+const TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'META', 'AMZN', 'NVDA', 'AMD', 'AVGO', 'QCOM', 'INTC', 'ORCL', 'CRM', 'ADBE', 'DIS', 'EA', 'TTWO', 'NFLX', 'CMCSA', 'WBD', 'KO', 'PEP', 'MDLZ', 'KHC', 'COST', 'WMT', 'TGT', 'HD', 'LOW', 'NKE', 'LULU', 'PFE', 'MRK', 'LLY', 'ABBV', 'XOM', 'CVX', 'COP', 'BA', 'LMT', 'RTX', 'MCD', 'SBUX', 'CMG', 'ASML', 'SAP', 'SONY', 'TSM', 'NVO', 'UL', 'TM', 'SHEL', 'AZN', 'BABA', 'ARM', 'SPOT'];
 
 export function PairPicker({ initial = ['DIS', 'EA'] }: { initial?: [string, string] }) {
   const router = useRouter();

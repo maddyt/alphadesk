@@ -25,7 +25,26 @@ interface SnapSpec {
   /** [ticker, name, EV/EBITDA, EV/Revenue], illustrative. */
   peers: [string, string, number, number][];
   peerBasis: string;
+  /** Foreign filers only: figures are in this currency, as reported in a 20-F. */
+  foreign?: { standard: 'IFRS' | 'US GAAP'; currency: string; form: string };
 }
+
+/** Approximate USD per unit, for offline snapshot mode only (live mode uses ECB / open.er-api rates). */
+export const SNAPSHOT_FX: Record<string, number> = { EUR: 1.08 };
+
+const IFRS_TAGS: Partial<Record<LineKey, string>> = {
+  revenue: 'Revenue',
+  ebit: 'ProfitLossFromOperatingActivities',
+  netIncome: 'ProfitLossAttributableToOwnersOfParent',
+  da: 'DepreciationAndAmortisationExpense',
+  capex: 'PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities',
+  pretax: 'ProfitLossBeforeTax',
+  taxExpense: 'IncomeTaxExpenseContinuingOperations',
+  cash: 'CashAndCashEquivalents',
+  debt: 'Borrowings',
+  leasePayments: 'PaymentsOfLeaseLiabilitiesClassifiedAsFinancingActivities',
+  sharesOutstanding: 'EntityCommonStockSharesOutstanding',
+};
 
 const TAGS: Partial<Record<LineKey, string>> = {
   revenue: 'RevenueFromContractWithCustomerExcludingAssessedTax',
@@ -160,19 +179,39 @@ const SPECS: Record<string, SnapSpec> = {
     peers: [['TTWO', 'Take-Two Interactive', 30.0, 6.5], ['RBLX', 'Roblox', 60.0, 11.0], ['NTES', 'NetEase', 11.0, 3.5], ['MSFT', 'Microsoft', 22.0, 12.5]],
     peerBasis: 'Interactive entertainment',
   },
+  // Foreign private issuer: IFRS 20-F in EUR millions (approximate FY2024), ADR price in USD.
+  ASML: {
+    name: 'ASML Holding N.V.',
+    cik: '0000937966',
+    sic: '3559',
+    sicDescription: 'Special Industry Machinery, NEC',
+    fyEnds: ['2022-12-31', '2023-12-31', '2024-12-31'],
+    revenue: [21173, 27559, 28263],
+    ebit: [6501, 9042, 9019],
+    latest: {
+      netIncome: 7571, da: 1100, capex: 2068, pretax: 8970, taxExpense: 1399, leasePayments: 90,
+      cash: 12742, securities: 0, debt: 4666, sharesOutstanding: 393.3,
+    },
+    market: { price: 662.62, low52: 645.0, high52: 1110.0, beta: 1.3 },
+    peers: [['AMAT', 'Applied Materials', 15.0, 4.5], ['LRCX', 'Lam Research', 18.0, 5.5], ['KLAC', 'KLA', 20.0, 8.5]],
+    peerBasis: 'Semiconductor equipment',
+    foreign: { standard: 'IFRS', currency: 'EUR', form: '20-F' },
+  },
 };
 
-export const SNAPSHOT_TICKERS = Object.keys(SPECS);
+export const SNAPSHOT_TICKERS = Object.keys(SPECS).filter((t) => !SPECS[t].foreign);
+export const SNAPSHOT_FOREIGN = Object.keys(SPECS).filter((t) => SPECS[t].foreign);
 
-function fact(key: LineKey, value: number, end: string, fy: number, start: string | null): Fact {
+function fact(key: LineKey, value: number, end: string, fy: number, start: string | null, foreign?: SnapSpec['foreign']): Fact {
   const isShares = key === 'sharesOutstanding';
+  const ifrs = foreign?.standard === 'IFRS';
   return {
     value,
-    tag: TAGS[key] ?? key,
-    taxonomy: isShares ? 'dei' : 'us-gaap',
-    unit: isShares ? 'shares' : 'USD',
+    tag: (ifrs ? IFRS_TAGS[key] : TAGS[key]) ?? key,
+    taxonomy: isShares ? 'dei' : ifrs ? 'ifrs-full' : 'us-gaap',
+    unit: isShares ? 'shares' : (foreign?.currency ?? 'USD'),
     accn: null,
-    form: '10-K',
+    form: foreign?.form ?? '10-K',
     filed: null,
     fy,
     fp: 'FY',
@@ -181,24 +220,24 @@ function fact(key: LineKey, value: number, end: string, fy: number, start: strin
   };
 }
 
-function line(key: LineKey, valueMillions: number, end: string, fy: number, start: string | null): LineItem {
+function line(key: LineKey, valueMillions: number, end: string, fy: number, start: string | null, foreign?: SnapSpec['foreign']): LineItem {
   const value = valueMillions * 1e6;
-  return { key, label: LABELS[key], value, facts: [fact(key, value, end, fy, start)] };
+  return { key, label: LABELS[key], value, facts: [fact(key, value, end, fy, start, foreign)] };
 }
 
-const FLOW_KEYS = new Set<LineKey>(['revenue', 'ebit', 'netIncome', 'da', 'capex', 'pretax', 'taxExpense', 'interestExpense', 'impairment']);
+const FLOW_KEYS = new Set<LineKey>(['revenue', 'ebit', 'netIncome', 'da', 'capex', 'pretax', 'taxExpense', 'interestExpense', 'impairment', 'leasePayments']);
 
 function buildCompany(ticker: string, s: SnapSpec): CompanyFinancials {
   const years: Period[] = s.fyEnds.map((end, i) => {
     const fy = Number(end.slice(0, 4));
     const start = new Date(Date.parse(end) - 364 * 86400_000).toISOString().slice(0, 10);
     const items: LineItems = {
-      revenue: line('revenue', s.revenue[i], end, fy, start),
-      ebit: line('ebit', s.ebit[i], end, fy, start),
+      revenue: line('revenue', s.revenue[i], end, fy, start, s.foreign),
+      ebit: line('ebit', s.ebit[i], end, fy, start, s.foreign),
     };
     if (i === s.fyEnds.length - 1) {
       for (const [k, v] of Object.entries(s.latest) as [LineKey, number][]) {
-        items[k] = line(k, v, end, fy, FLOW_KEYS.has(k) ? start : null);
+        items[k] = line(k, v, end, fy, FLOW_KEYS.has(k) ? start : null, s.foreign);
       }
     }
     if (ticker === 'DIS' && items.ebit) items.ebit.formula = 'Pre-tax income + interest expense (OperatingIncomeLoss not reported)';
@@ -212,10 +251,11 @@ function buildCompany(ticker: string, s: SnapSpec): CompanyFinancials {
     sic: s.sic,
     sicDescription: s.sicDescription,
     years,
-    ltm: { ...last, label: `${last.label} (LTM)` },
+    ltm: { ...last, label: s.foreign ? `${last.label} (annual)` : `${last.label} (LTM)` },
     balance: { ...last, label: `Balance sheet ${last.label}` },
     source: 'snapshot',
     fetchedAt: SNAPSHOT_AS_OF,
+    accounting: s.foreign ? { standard: s.foreign.standard, currency: s.foreign.currency, annualForm: s.foreign.form } : { standard: 'US GAAP', currency: 'USD', annualForm: '10-K' },
   };
 }
 
@@ -254,6 +294,8 @@ export function snapshotPeers(ticker: string): { peers: PeerComp[]; basis: strin
 }
 
 export function snapshotDataset(ticker: string): Dataset | null {
+  // The valuation workbench covers US 10-K filers only; foreign snapshots are for DealPulse.
+  if (SPECS[ticker]?.foreign) return null;
   const company = snapshotCompany(ticker);
   const market = snapshotMarket(ticker);
   const peers = snapshotPeers(ticker);

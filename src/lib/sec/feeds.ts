@@ -24,7 +24,7 @@ const archive = (cik: string, accn: string) => `https://www.sec.gov/Archives/edg
 const within = (iso: string, months: number) => Date.now() - Date.parse(iso) <= months * 30.44 * 86400_000;
 
 async function segments(cik: string, filings: FilingRef[]): Promise<Intel['segments']> {
-  const tenK = filings.find((f) => f.form === '10-K');
+  const tenK = filings.find((f) => f.form === '10-K' || f.form === '20-F' || f.form === '40-F');
   if (!tenK) return null;
   const base = archive(cik, tenK.accessionNumber);
   const index = await secFetch<{ directory: { item: { name: string; size?: string }[] } }>(`${base}/index.json`);
@@ -75,9 +75,16 @@ export async function fetchIntel(ticker: string): Promise<Intel> {
       return null;
     }
   };
-  const [seg, ins, own] = await Promise.all([settle('Segment revenue', segments(cik, filings)), settle('Form 4 insider trades', insiders(cik, filings)), settle('Schedule 13D/G filings', ownership(cik, filings))]);
+  // Foreign private issuers file 20-F/40-F and are exempt from Section 16 (Form 4), the proxy rules and 8-K.
+  const fpi = !filings.some((f) => f.form === '10-K') && filings.some((f) => f.form === '20-F' || f.form === '40-F');
+  const [seg, ins, own] = await Promise.all([
+    settle('Segment revenue', segments(cik, filings)),
+    fpi ? Promise.resolve(null) : settle('Form 4 insider trades', insiders(cik, filings)),
+    settle('Schedule 13D/G filings', ownership(cik, filings)),
+  ]);
+  if (fpi) notes.push('Foreign private issuer: exempt from Form 4 insider reporting and US proxy rules; files 6-K instead of 8-K, so only amended or late annual reports can be flagged.');
   const flags = governanceFlags(filings);
-  const def14a = filings.find((f) => f.form === 'DEF 14A');
+  const def14a = fpi ? undefined : filings.find((f) => f.form === 'DEF 14A');
   if (seg && seg.breakdowns.length === 0) notes.push('The latest 10-K does not tag revenue by segment or geography in a way that could be parsed.');
   return {
     ticker,
@@ -87,6 +94,7 @@ export async function fetchIntel(ticker: string): Promise<Intel> {
     insiders: ins,
     ownership: own,
     governance: { flags, rating: governanceRating(flags), months: 24 },
+    fpi,
     proxy: def14a ? { accessionNumber: def14a.accessionNumber, filingDate: def14a.filingDate, url: `${archive(cik, def14a.accessionNumber)}/${def14a.primaryDocument}` } : null,
     notes,
     fetchedAt: new Date().toISOString(),

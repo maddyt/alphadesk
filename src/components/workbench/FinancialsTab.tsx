@@ -185,7 +185,7 @@ export function AuditModal({ cik, live, sel, onClose }: { cik: string; live: boo
                 {f.weight === -1 && <Badge tone="snap">subtracted</Badge>}
               </div>
               <dl className="num grid grid-cols-2 gap-x-6 gap-y-2 px-4 py-3 text-[12.5px] sm:grid-cols-3">
-                <Field k="Reported value" v={isShares ? shares(f.value) : `$${mm(f.value)}M`} />
+                <Field k="Reported value" v={isShares ? shares(f.value) : f.unit === 'USD' ? `$${mm(f.value)}M` : `${f.unit} ${mm(f.value)}M`} />
                 <Field k="Period" v={f.start ? `${date(f.start)} – ${date(f.end)}` : `As of ${date(f.end)}`} />
                 <Field k="Form" v={f.form ?? '—'} />
                 <Field k="Fiscal year / period" v={f.fy ? `FY${f.fy} ${f.fp ?? ''}` : '—'} />

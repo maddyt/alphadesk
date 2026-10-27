@@ -66,9 +66,9 @@ export function governanceFlags(filings: FilingRef[], now = new Date(), months =
         const flag = ITEM_FLAGS[item];
         if (flag) out.push({ severity: flag.severity, code: `8-K Item ${item}`, title: flag.title, filingDate: f.filingDate, form: f.form, accessionNumber: f.accessionNumber });
       }
-    } else if (f.form === '10-K/A' || f.form === '10-Q/A') {
+    } else if (f.form === '10-K/A' || f.form === '10-Q/A' || f.form === '20-F/A' || f.form === '40-F/A') {
       out.push({ severity: 'amber', code: f.form, title: 'Amended periodic report', filingDate: f.filingDate, form: f.form, accessionNumber: f.accessionNumber });
-    } else if (f.form === 'NT 10-K' || f.form === 'NT 10-Q') {
+    } else if (f.form === 'NT 10-K' || f.form === 'NT 10-Q' || f.form === 'NT 20-F') {
       out.push({ severity: 'amber', code: f.form, title: 'Late filing notice', filingDate: f.filingDate, form: f.form, accessionNumber: f.accessionNumber });
     }
   }
@@ -198,9 +198,19 @@ const AXES: Record<string, SegmentBreakdown['axis']> = {
   'srt:ProductOrServiceAxis': 'product',
   'us-gaap:StatementBusinessSegmentsAxis': 'business',
   'srt:StatementGeographicalAxis': 'geography',
+  // IFRS 8 operating segments in 20-F filings
+  'ifrs-full:ProductsAndServicesAxis': 'product',
+  'ifrs-full:SegmentsAxis': 'business',
+  'ifrs-full:GeographicalAreasAxis': 'geography',
 };
 
-const REVENUE_TAGS = ['us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', 'us-gaap:Revenues', 'us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax'];
+const REVENUE_TAGS = [
+  'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax',
+  'us-gaap:Revenues',
+  'us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax',
+  'ifrs-full:Revenue',
+  'ifrs-full:RevenueFromContractsWithCustomers',
+];
 
 interface Ctx {
   start: string;

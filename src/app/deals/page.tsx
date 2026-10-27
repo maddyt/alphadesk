@@ -19,6 +19,9 @@ const PAIRS: [string, string, string][] = [
   ['PEP', 'KHC', 'Packaged-food roll-up'],
   ['CVX', 'COP', 'Oil majors merge'],
   ['COST', 'TGT', 'Retail consolidation'],
+  ['NVDA', 'ASML', 'Cross-border · IFRS target'],
+  ['SAP', 'CRM', 'Cross-border · IFRS acquirer'],
+  ['DIS', 'SONY', 'Cross-border · media'],
 ];
 
 const STEPS = [
@@ -62,7 +65,9 @@ export default async function DealsHome() {
                 </Link>
               ))}
             </div>
-            <p className="mt-3 text-[11px] text-mute">All pairings are hypothetical, for analysis practice.</p>
+            <p className="mt-3 text-[11px] text-mute">
+              All pairings are hypothetical, for analysis practice. Non-US companies filing 20-F reports (IFRS or foreign-currency GAAP) are converted to USD and ADR shares automatically.
+            </p>
           </div>
         </section>
 

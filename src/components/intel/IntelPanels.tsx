@@ -74,7 +74,7 @@ export function SegmentMix({ b, title }: { b: SegmentBreakdown; title?: string }
 
 export function InsiderPanel({ intel }: { intel: Intel }) {
   const s = intel.insiders;
-  if (!s) return <Empty title="Insider trades (Form 4)" note={intel.source === 'snapshot' ? 'Live SEC access needed.' : 'Not available.'} />;
+  if (!s) return <Empty title="Insider trades (Form 4)" note={intel.fpi ? 'Foreign private issuers are exempt from Section 16, so executives do not file Form 4.' : intel.source === 'snapshot' ? 'Live SEC access needed.' : 'Not available.'} />;
   const tone = s.signal === 'buying' ? 'green' : s.signal === 'selling' ? 'amber' : 'green';
   return (
     <Card title="Insider trades · Form 4, last 12 months" subtitle={`${s.filings} filings scanned. Open-market buys (code P) and sales (code S) only; grants and option exercises excluded.`}>
@@ -153,7 +153,7 @@ export function GovernancePanel({ intel }: { intel: Intel }) {
   const serious = g.flags.filter((f) => f.severity !== 'info');
   return (
     <Card
-      title={`Accounting audit scorecard · 8-K and amendments, last ${g.months} months`}
+      title={`Accounting audit scorecard · ${intel.fpi ? '20-F amendments and late filings' : '8-K and amendments'}, last ${g.months} months`}
       subtitle="Item 4.02 (restatement / non-reliance) is a red flag; Item 4.01 (auditor change), amended reports and late filings are amber."
       right={
         <span className={`flex items-center gap-1.5 text-xs font-bold ${st.text}`}>
@@ -215,7 +215,7 @@ export function ParachutePanel({ ticker, intel, applied, onApply }: { ticker: st
             disabled={state.status === 'loading' || !intel.proxy}
             className="mt-3 rounded-xl bg-brand px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
           >
-            {state.status === 'loading' ? 'Reading proxy statement…' : intel.proxy ? 'Extract golden parachutes' : 'No proxy available'}
+            {state.status === 'loading' ? 'Reading proxy statement…' : intel.proxy ? 'Extract golden parachutes' : intel.fpi ? 'Not applicable (foreign filer)' : 'No proxy available'}
           </button>
         </div>
       )}

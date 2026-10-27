@@ -4,6 +4,7 @@ import { fetchIntel } from '../sec/feeds.ts';
 import type { SegmentBreakdown } from '../sec/parsers.ts';
 import { normalizeTicker } from './dataset.ts';
 import { cached } from './cache.ts';
+import { snapshotCompany } from './snapshot.ts';
 
 const TTL = 12 * 3600_000;
 
@@ -39,6 +40,7 @@ function snapshotIntel(ticker: string, reason: string): Intel {
     ownership: null,
     governance: null,
     proxy: null,
+    fpi: !!snapshotCompany(ticker)?.accounting && snapshotCompany(ticker)!.accounting!.annualForm !== '10-K',
     notes: [reason],
     fetchedAt: new Date().toISOString(),
   };

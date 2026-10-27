@@ -2,7 +2,7 @@
 // into annual, LTM and latest-balance-sheet line items. Every value keeps the raw
 // facts it came from (tag, accession number, form, filing date) for the audit trail.
 
-import type { CompanyFinancials, Fact, LineItem, LineItems, LineKey, Period } from '../types.ts';
+import type { Accounting, CompanyFinancials, Fact, LineItem, LineItems, LineKey, Period } from '../types.ts';
 
 interface RawFact {
   start?: string;
@@ -56,6 +56,9 @@ export const LABELS: Record<LineKey, string> = {
   equity: "Stockholders' equity",
   sharesOutstanding: 'Shares outstanding',
   sharesDiluted: 'Diluted weighted-average shares',
+  leasePayments: 'Lease payments (IFRS 16)',
+  leaseInterest: 'Interest on lease liabilities',
+  leaseLiabilities: 'Lease liabilities',
 };
 
 const FLOW: Partial<Record<LineKey, TagSpec[]>> = {
@@ -122,14 +125,96 @@ const INSTANT: Partial<Record<LineKey, TagSpec[]>> = {
   equity: [usd('StockholdersEquity'), usd('StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest')],
 };
 
+// IFRS filers (20-F / 40-F) tag the IFRS Taxonomy, in their own reporting currency.
+const ifrs = (unit: string) => (tag: string, sign = 1): TagSpec => ({ taxonomy: 'ifrs-full', tag, unit, sign });
+
+function ifrsMaps(unit: string) {
+  const m = ifrs(unit);
+  const flow: Partial<Record<LineKey, TagSpec[]>> = {
+    revenue: [m('Revenue'), m('RevenueFromContractsWithCustomers')],
+    ebit: [m('ProfitLossFromOperatingActivities')],
+    netIncome: [m('ProfitLossAttributableToOwnersOfParent'), m('ProfitLoss')],
+    da: [
+      m('DepreciationAndAmortisationExpense'),
+      m('AdjustmentsForDepreciationAndAmortisationExpense'),
+      m('DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss'),
+      m('AdjustmentsForDepreciationExpense'),
+    ],
+    capex: [m('PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities'), m('PurchaseOfPropertyPlantAndEquipment')],
+    pretax: [m('ProfitLossBeforeTax')],
+    taxExpense: [m('IncomeTaxExpenseContinuingOperations')],
+    interestExpense: [m('FinanceCosts'), m('InterestExpense')],
+    sharesDiluted: [{ taxonomy: 'ifrs-full', tag: 'AdjustedWeightedAverageShares', unit: 'shares' }],
+    leasePayments: [m('PaymentsOfLeaseLiabilitiesClassifiedAsFinancingActivities'), m('PaymentsOfLeaseLiabilities')],
+    leaseInterest: [m('InterestExpenseOnLeaseLiabilities')],
+  };
+  const instant: Partial<Record<LineKey, TagSpec[]>> = {
+    cash: [m('CashAndCashEquivalents')],
+    securities: [m('ShorttermDepositsNotClassifiedAsCashEquivalents')],
+    ar: [m('TradeAndOtherCurrentReceivables')],
+    inventory: [m('Inventories')],
+    ap: [m('TradeAndOtherCurrentPayables')],
+    assets: [m('Assets')],
+    assetsCurrent: [m('CurrentAssets')],
+    liabilitiesCurrent: [m('CurrentLiabilities')],
+    liabilitiesAndEquity: [m('EquityAndLiabilities')],
+    liabilities: [m('Liabilities')],
+    equity: [m('EquityAttributableToOwnersOfParent'), m('Equity')],
+    leaseLiabilities: [m('LeaseLiabilities')],
+  };
+  return { flow, instant };
+}
+
+interface Profile {
+  standard: Accounting['standard'];
+  currency: string;
+  annual: RegExp;
+  quarter: RegExp;
+  flow: Partial<Record<LineKey, TagSpec[]>>;
+  instant: Partial<Record<LineKey, TagSpec[]>>;
+  spec: (tag: string, sign?: number) => TagSpec;
+}
+
+const ANNUAL = /^(10-K|20-F|40-F)/; // foreign private issuers file 20-F (or 40-F from Canada)
+const QUARTER = /^(10-Q|6-K)/;
+
+const inUnit = (map: Partial<Record<LineKey, TagSpec[]>>, unit: string) =>
+  Object.fromEntries(Object.entries(map).map(([k, specs]) => [k, specs!.map((t) => (t.unit === 'USD' ? { ...t, unit } : t))])) as Partial<Record<LineKey, TagSpec[]>>;
+
+function mostUsedUnit(facts: Record<string, { units: Record<string, unknown[]> }> | undefined, tags: string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const tag of tags) for (const [unit, rows] of Object.entries(facts?.[tag]?.units ?? {})) if (unit !== 'shares' && unit !== 'pure') counts.set(unit, (counts.get(unit) ?? 0) + rows.length);
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+/**
+ * US GAAP (10-K, or a 20-F filed under US GAAP) in whatever currency it reports, else
+ * IFRS (20-F / 40-F) in its most-used reporting currency.
+ */
+function detectProfile(json: CompanyFactsJson): Profile {
+  const gaap = json.facts?.['us-gaap'];
+  const gaapRevTags = (FLOW.revenue ?? []).map((t) => t.tag);
+  const gaapUnit = mostUsedUnit(gaap as never, [...gaapRevTags, 'Assets']);
+  const hasGaapAnnual = gaapRevTags.some((tag) => Object.values(gaap?.[tag]?.units ?? {}).some((rows) => rows.some((r) => !!r.form && ANNUAL.test(r.form))));
+  if (hasGaapAnnual || !json.facts?.['ifrs-full']) {
+    const unit = gaapRevTags.some((tag) => gaap?.[tag]?.units?.USD?.length) ? 'USD' : (gaapUnit ?? 'USD');
+    return { standard: 'US GAAP', currency: unit, annual: ANNUAL, quarter: QUARTER, flow: inUnit(FLOW, unit), instant: inUnit(INSTANT, unit), spec: (tag, sign = 1) => ({ taxonomy: 'us-gaap', tag, unit, sign }) };
+  }
+  const currency = mostUsedUnit(json.facts['ifrs-full'] as never, ['Revenue', 'ProfitLoss', 'Assets']) ?? 'USD';
+  const { flow, instant } = ifrsMaps(currency);
+  return { standard: 'IFRS', currency, annual: ANNUAL, quarter: QUARTER, flow, instant, spec: ifrs(currency) };
+}
+
 const DAY = 86_400_000;
 const days = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / DAY;
 const near = (a: string, b: string, tol = 10) => Math.abs(days(a, b)) <= tol;
 
 class FactIndex {
   private json: CompanyFactsJson;
+  readonly p: Profile;
   constructor(json: CompanyFactsJson) {
     this.json = json;
+    this.p = detectProfile(json);
   }
 
   raw(spec: TagSpec): RawFact[] {
@@ -156,7 +241,7 @@ class FactIndex {
   annualFlow(spec: TagSpec): Map<string, Fact> {
     const out = new Map<string, Fact>();
     for (const r of this.raw(spec)) {
-      if (!r.start || !r.form?.startsWith('10-K')) continue;
+      if (!r.start || !r.form || !this.p.annual.test(r.form)) continue;
       const d = days(r.start, r.end);
       if (d < 340 || d > 380) continue;
       const prev = out.get(r.end);
@@ -167,7 +252,7 @@ class FactIndex {
 
   instants(spec: TagSpec): Fact[] {
     return this.raw(spec)
-      .filter((r) => !r.start && (r.form?.startsWith('10-K') || r.form?.startsWith('10-Q')))
+      .filter((r) => !r.start && !!r.form && (this.p.annual.test(r.form) || this.p.quarter.test(r.form)))
       .map((r) => this.toFact(spec, r));
   }
 
@@ -211,7 +296,7 @@ function item(key: LineKey, facts: Fact[], formula?: string): LineItem {
 }
 
 function annualFlowItem(idx: FactIndex, key: LineKey, end: string): LineItem | undefined {
-  for (const spec of orderSpecs(idx, FLOW[key] ?? [])) {
+  for (const spec of orderSpecs(idx, idx.p.flow[key] ?? [])) {
     const series = idx.annualFlow(spec);
     for (const [e, f] of series) if (near(e, end)) return item(key, [f]);
   }
@@ -219,15 +304,38 @@ function annualFlowItem(idx: FactIndex, key: LineKey, end: string): LineItem | u
 }
 
 function instantItem(idx: FactIndex, key: LineKey, end: string): LineItem | undefined {
-  for (const spec of orderSpecs(idx, INSTANT[key] ?? [])) {
+  for (const spec of orderSpecs(idx, idx.p.instant[key] ?? [])) {
     const f = idx.instantAt(spec, end);
     if (f) return item(key, [f]);
   }
   return undefined;
 }
 
+function ifrsDebtItem(idx: FactIndex, end: string): LineItem {
+  const at = (tag: string) => idx.instantAt(idx.p.spec(tag), end);
+  const facts: Fact[] = [];
+  const total = at('Borrowings');
+  if (total) facts.push(total);
+  else {
+    const nonCurrent = at('NoncurrentPortionOfNoncurrentBorrowings') ?? at('LongtermBorrowings');
+    const current = at('CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings');
+    if (nonCurrent) facts.push(nonCurrent);
+    if (current) facts.push(current);
+    else {
+      const st = at('ShorttermBorrowings');
+      const cp = at('CurrentPortionOfLongtermBorrowings');
+      if (st) facts.push(st);
+      if (cp) facts.push(cp);
+    }
+  }
+  // Lease liabilities are excluded, matching US GAAP debt (which excludes operating leases).
+  if (facts.length === 0) return { key: 'debt', label: LABELS.debt, value: 0, facts: [], formula: 'No borrowings tags reported' };
+  return item('debt', facts, facts.map((f) => f.tag).join(' + ') + ' (excl. IFRS 16 lease liabilities)');
+}
+
 function debtItem(idx: FactIndex, end: string): LineItem | undefined {
-  const at = (tag: string) => idx.instantAt(usd(tag), end);
+  if (idx.p.standard === 'IFRS') return ifrsDebtItem(idx, end);
+  const at = (tag: string) => idx.instantAt(idx.p.spec(tag), end);
   const total = at('LongTermDebt') ?? at('LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities');
   const facts: Fact[] = [];
   let usedDebtCurrent = false;
@@ -274,11 +382,11 @@ function monYY(end: string) {
   return d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }) + '-' + String(d.getUTCFullYear()).slice(2);
 }
 
-export function parseCompanyFacts(json: CompanyFactsJson, ticker: string): Omit<CompanyFinancials, 'sic' | 'sicDescription' | 'source' | 'fetchedAt'> {
+export function parseCompanyFacts(json: CompanyFactsJson, ticker: string): Omit<CompanyFinancials, 'sic' | 'sicDescription' | 'source' | 'fetchedAt'> & { accounting: Accounting } {
   const idx = new FactIndex(json);
 
   // Fiscal year ends come from the revenue series (the most consistently tagged flow line).
-  const revSpecs = orderSpecs(idx, FLOW.revenue!);
+  const revSpecs = orderSpecs(idx, idx.p.flow.revenue!);
   const ends = new Set<string>();
   for (const spec of revSpecs) for (const e of idx.annualFlow(spec).keys()) ends.add(e);
   const sortedEnds = [...ends].sort();
@@ -289,10 +397,10 @@ export function parseCompanyFacts(json: CompanyFactsJson, ticker: string): Omit<
     else fyEnds.push(e);
   }
   const lastEnds = fyEnds.slice(-5);
-  if (lastEnds.length === 0) throw new Error(`${ticker}: no annual 10-K revenue facts found`);
+  if (lastEnds.length === 0) throw new Error(`${ticker}: no annual 10-K or 20-F revenue facts found`);
 
-  const flowKeys = Object.keys(FLOW) as LineKey[];
-  const instantKeys = Object.keys(INSTANT) as LineKey[];
+  const flowKeys = Object.keys(idx.p.flow) as LineKey[];
+  const instantKeys = Object.keys(idx.p.instant) as LineKey[];
 
   const years: Period[] = lastEnds.map((end) => {
     const items: LineItems = {};
@@ -322,19 +430,24 @@ export function parseCompanyFacts(json: CompanyFactsJson, ticker: string): Omit<
     years,
     ltm,
     balance,
+    accounting: {
+      standard: idx.p.standard,
+      currency: idx.p.currency,
+      annualForm: years[years.length - 1].items.revenue?.facts[0]?.form ?? (idx.p.standard === 'IFRS' ? '20-F' : '10-K'),
+    },
   };
 }
 
 /** LTM = latest fiscal year + current YTD - prior-year YTD, using the same tag for all three. */
 function buildLtm(idx: FactIndex, fy: Period): Period {
   const revFact = fy.items.revenue?.facts[0];
-  const fallback: Period = { ...fy, label: `${fy.label} (LTM)` };
+  const fallback: Period = { ...fy, label: idx.p.standard === 'IFRS' ? `${fy.label} (annual)` : `${fy.label} (LTM)` };
   if (!revFact) return fallback;
-  const revSpec = usd(revFact.tag);
+  const revSpec = idx.p.spec(revFact.tag);
   // Latest 10-Q YTD revenue that starts at the beginning of the new fiscal year.
   let ytd: Fact | undefined;
   for (const r of idx.raw(revSpec)) {
-    if (!r.start || !r.form?.startsWith('10-Q') || r.end <= fy.end) continue;
+    if (!r.start || !r.form || !idx.p.quarter.test(r.form) || r.end <= fy.end) continue;
     if (Math.abs(days(fy.end, r.start)) > 10) continue;
     if (!ytd || r.end > ytd.end) ytd = idx.toFact(revSpec, r);
   }
@@ -343,7 +456,7 @@ function buildLtm(idx: FactIndex, fy: Period): Period {
   const priorEnd = new Date(Date.parse(ytd.end) - 364 * DAY).toISOString().slice(0, 10);
 
   const items: LineItems = {};
-  for (const key of Object.keys(FLOW) as LineKey[]) {
+  for (const key of Object.keys(idx.p.flow) as LineKey[]) {
     const base = fy.items[key];
     if (key === 'ebit' && base?.formula) continue; // derived EBIT is rebuilt from LTM pre-tax + interest below
     if (!base || base.facts.length !== 1 || key === 'sharesDiluted') {
@@ -351,7 +464,7 @@ function buildLtm(idx: FactIndex, fy: Period): Period {
       continue;
     }
     const f = base.facts[0];
-    const spec = (FLOW[key] ?? []).find((t) => t.tag === f.tag);
+    const spec = (idx.p.flow[key] ?? []).find((t) => t.tag === f.tag);
     const cur = spec && idx.flowAt(spec, ytd.end, dur);
     const prior = spec && idx.flowAt(spec, priorEnd, dur);
     if (!cur || !prior) {
@@ -367,10 +480,10 @@ function buildLtm(idx: FactIndex, fy: Period): Period {
 }
 
 function buildBalance(idx: FactIndex, fy: Period): Period {
-  const assetsSpec = usd('Assets');
+  const assetsSpec = idx.p.spec('Assets');
   const end = [fy.end, ...idx.instants(assetsSpec).map((f) => f.end)].reduce((m, e) => (e > m ? e : m), fy.end);
   const items: LineItems = {};
-  for (const k of Object.keys(INSTANT) as LineKey[]) {
+  for (const k of Object.keys(idx.p.instant) as LineKey[]) {
     const it = instantItem(idx, k, end) ?? fy.items[k];
     if (it) items[k] = it;
   }

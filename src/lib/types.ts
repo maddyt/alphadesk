@@ -45,7 +45,10 @@ export type LineKey =
   | 'liabilities'
   | 'equity'
   | 'sharesOutstanding'
-  | 'sharesDiluted';
+  | 'sharesDiluted'
+  | 'leasePayments'
+  | 'leaseInterest'
+  | 'leaseLiabilities';
 
 export interface LineItem {
   key: LineKey;
@@ -66,6 +69,15 @@ export interface Period {
   items: LineItems;
 }
 
+export interface Accounting {
+  standard: 'US GAAP' | 'IFRS';
+  /** ISO currency of the reported figures (before any conversion). */
+  currency: string;
+  annualForm: string; // 10-K, 20-F or 40-F
+  /** Set once figures are converted to USD: USD per unit of the reporting currency. */
+  fx?: { rate: number; asOf: string; source: string };
+}
+
 export interface CompanyFinancials {
   ticker: string;
   cik: string;
@@ -80,6 +92,8 @@ export interface CompanyFinancials {
   balance: Period;
   source: DataSource;
   fetchedAt: string;
+  /** Absent on older cached payloads, which are always US GAAP in USD. */
+  accounting?: Accounting;
 }
 
 export interface MarketData {
@@ -132,6 +146,8 @@ export interface Intel {
   ownership: OwnershipFiling[] | null;
   governance: { flags: GovernanceFlag[]; rating: 'green' | 'amber' | 'red'; months: number } | null;
   proxy: { accessionNumber: string; filingDate: string; url: string } | null;
+  /** Foreign private issuer (20-F / 40-F): exempt from Form 4, proxy rules and 8-K items. */
+  fpi?: boolean;
   notes: string[];
   fetchedAt: string;
 }

@@ -14,6 +14,7 @@ const FINANCIALS_TTL_MS = 12 * 3600_000; // XBRL facts change only when a filing
 const DATASET_TTL_MS = 15 * 60_000; // prices move; keep the assembled dataset briefly
 
 export class TickerNotFoundError extends Error {}
+export class ForeignFilerError extends Error {}
 
 const memory = new Map<string, { at: number; value: unknown }>();
 
@@ -76,6 +77,7 @@ export async function getFinancials(ticker: string): Promise<CompanyFinancials> 
 async function livePeer(ticker: string): Promise<PeerComp | null> {
   try {
     const [fin, price] = await Promise.all([getFinancials(ticker), fetchPrice(ticker)]);
+    if (fin.accounting && (fin.accounting.currency !== 'USD' || fin.accounting.annualForm !== '10-K')) return null; // valuation peers stay US GAAP / USD
     const ltm = fin.ltm.items;
     const ebit = adjustedEbit(ltm);
     const da = ltm.da?.value ?? 0;
@@ -95,6 +97,12 @@ async function livePeer(ticker: string): Promise<PeerComp | null> {
 
 async function liveDataset(ticker: string): Promise<Dataset> {
   const [company, macro] = await Promise.all([getFinancials(ticker), getYieldCurve()]);
+  const acc = company.accounting;
+  if (acc && (acc.standard !== 'US GAAP' || acc.currency !== 'USD' || acc.annualForm !== '10-K')) {
+    throw new ForeignFilerError(
+      `${ticker} is a foreign filer (${acc.annualForm}, ${acc.standard}, reporting in ${acc.currency}). The valuation workbench covers US 10-K filers; foreign companies are supported in M&A Deals (DealPulse).`,
+    );
+  }
   const warnings: string[] = [];
 
   const snapMarket = snapshotMarket(ticker);
@@ -142,6 +150,10 @@ export async function getDataset(rawTicker: string): Promise<Dataset> {
   if (mem) return mem;
 
   if (process.env.DATA_MODE === 'snapshot') {
+    const sc = snapshotCompany(ticker);
+    if (sc?.accounting && sc.accounting.annualForm !== '10-K') {
+      throw new ForeignFilerError(`${ticker} is a foreign filer (${sc.accounting.annualForm}, ${sc.accounting.standard}, reporting in ${sc.accounting.currency}). The valuation workbench covers US 10-K filers; foreign companies are supported in M&A Deals (DealPulse).`);
+    }
     const snap = snapshotDataset(ticker);
     if (!snap) throw new TickerNotFoundError(`${ticker} is not in the offline snapshot (DATA_MODE=snapshot)`);
     return snap;
@@ -152,6 +164,7 @@ export async function getDataset(rawTicker: string): Promise<Dataset> {
     memoSet(key, ds);
     return ds;
   } catch (e) {
+    if (e instanceof ForeignFilerError) throw e;
     const snap = snapshotDataset(ticker);
     if (snap && snapshotCompany(ticker)) {
       snap.warnings.unshift(`Live SEC EDGAR fetch failed (${(e as Error).message}); showing the offline snapshot.`);

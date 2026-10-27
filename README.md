@@ -9,6 +9,22 @@ Both layouts are responsive. On phones the controls move below the results, and 
 
 ---
 
+## Cross-border M&A: foreign (20-F) filers in DealPulse
+
+DealPulse accepts non-US companies as acquirer or target (e.g. `/deals/NVDA/ASML`, `/deals/SAP/CRM`). ValuationEngine stays US-only (10-K, US GAAP, USD); a foreign ticker there shows a notice linking to DealPulse.
+
+| Issue | How it's handled |
+|---|---|
+| IFRS taxonomy | Parser auto-detects `ifrs-full` facts in 20-F/40-F filings and maps them (Revenue, ProfitLossFromOperatingActivities, ProfitLossAttributableToOwnersOfParent, Borrowings, EquityAndLiabilities, ...). Foreign filers that use US GAAP in a 20-F (e.g. Alibaba in CNY) work too |
+| Reporting currency | Converted to USD at the spot rate (ECB via Frankfurter, fallback open.er-api.com). One rate applies to all periods (a simplification, disclosed in the UI). Audit facts keep the as-reported currency |
+| ADRs | Ordinary share counts are converted to ADR equivalents using a table of depositary ratios (e.g. TSM 5:1, TM 10:1, AZN 0.5:1). Unknown tickers assume 1:1, with a warning |
+| IFRS 16 leases | EBITDA is lease-adjusted (minus lease payments and lease interest) so leverage and multiples compare with US GAAP. Lease liabilities are excluded from debt, matching US GAAP's treatment of operating leases |
+| No quarterly XBRL | Annual (20-F) figures only, labelled "annual" |
+| Exempt filings | No Form 4, DEF 14A or 8-K items for foreign private issuers. Those panels explain why; the governance scan uses 20-F/A and NT 20-F |
+| Regulatory | The antitrust card adds a cross-border note: CFIUS for foreign acquirers of US businesses, foreign merger control for foreign targets |
+
+---
+
 ## PRD v2 additions (both apps)
 
 **Extended SEC feeds** (`src/lib/sec/feeds.ts`, parsers in `src/lib/sec/parsers.ts`, cached 12h; Supabase `feed_cache` when configured). These load after the page renders, so they never slow the first view:

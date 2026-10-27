@@ -30,6 +30,11 @@ export interface DealCompany {
   enterpriseValue: number;
   eps: number;
   taxRate: number;
+  /** Reporting basis. Foreign filers are converted to USD and ADR-equivalent shares before reaching the engine. */
+  accounting: { standard: 'US GAAP' | 'IFRS'; form: string; currency: string; fxRate: number | null; fxAsOf: string | null; foreign: boolean };
+  /** EBITDA as reported; under IFRS 16 this excludes all lease costs. `ebitda` is the US-GAAP-comparable figure. */
+  ebitdaReported: number;
+  leaseAdjustment: number;
   /** XBRL provenance for the audit trail, keyed by line. */
   audit: Record<'netIncome' | 'revenue' | 'ebitda' | 'cash' | 'debt' | 'shares' | 'dilutedShares', LineItem | undefined>;
 }
@@ -53,6 +58,10 @@ export function toDealCompany(c: CompanyFinancials, m: MarketData): DealCompany 
   const pretax = val(last.pretax);
   const tax = val(last.taxExpense);
   const marketCap = m.price * shares;
+  const acc = c.accounting ?? { standard: 'US GAAP' as const, currency: 'USD', annualForm: '10-K' };
+  // IFRS 16 moves lease costs below EBITDA. Deduct lease payments + lease interest so multiples and
+  // leverage compare like-for-like with US GAAP peers, where operating-lease rent sits above EBITDA.
+  const leaseAdjustment = acc.standard === 'IFRS' ? (val(ltm.leasePayments) ?? val(last.leasePayments) ?? 0) + (val(ltm.leaseInterest) ?? val(last.leaseInterest) ?? 0) : 0;
   const dilutedShares = val(ltm.sharesDiluted) ?? val(last.sharesDiluted) ?? shares;
   // EBITDA's audit line combines its EBIT and D&A facts.
   const ebitdaFacts: Fact[] = [...(ltm.ebit?.facts ?? []), ...(ltm.impairment?.facts ?? []), ...(ltm.da?.facts ?? [])];
@@ -72,7 +81,17 @@ export function toDealCompany(c: CompanyFinancials, m: MarketData): DealCompany 
     marketCap,
     netIncome,
     revenue,
-    ebitda: ebit + da,
+    ebitda: ebit + da - leaseAdjustment,
+    ebitdaReported: ebit + da,
+    leaseAdjustment,
+    accounting: {
+      standard: acc.standard,
+      form: acc.annualForm,
+      currency: acc.currency,
+      fxRate: acc.fx?.rate ?? null,
+      fxAsOf: acc.fx?.asOf ?? null,
+      foreign: acc.annualForm !== '10-K' || acc.currency !== 'USD' || acc.standard !== 'US GAAP',
+    },
     cash,
     debt,
     netDebt: debt - cash,
@@ -346,6 +365,14 @@ export function riskScorecard(A: DealCompany, T: DealCompany, a: DealAssumptions
   const horizontal = sic4 || productHeavy;
   const antitrust: Rag = horizontal ? (big ? 'red' : 'amber') : sic2 ? (big ? 'amber' : 'green') : 'green';
   const overlap = productHeavy ? `${Math.round((x.productOverlap ?? 0) * 100)}% product overlap` : sic4 ? 'same industry code' : sic2 ? 'related industries' : 'different industries';
+  const crossBorder =
+    A.accounting.foreign && !T.accounting.foreign
+      ? ` Cross-border: a foreign acquirer of a US business may face CFIUS national-security review.`
+      : !A.accounting.foreign && T.accounting.foreign
+        ? ` Cross-border: ${T.ticker} is a foreign filer, so foreign merger-control regimes (e.g. EU, UK CMA, China SAMR) likely also apply.`
+        : A.accounting.foreign && T.accounting.foreign
+          ? ' Both companies are foreign filers: multiple non-US merger-control reviews likely.'
+          : '';
   const segNote =
     x.productOverlap != null || x.geoOverlap != null
       ? ` Segment data: ${x.productOverlap != null ? `${Math.round(x.productOverlap * 100)}% of ${T.ticker} revenue sits in product lines that overlap ${A.ticker}'s` : 'no comparable product breakdown'}${x.geoOverlap != null ? `; geographic mix similarity ${Math.round(x.geoOverlap * 100)}%` : ''}.`
@@ -367,7 +394,7 @@ export function riskScorecard(A: DealCompany, T: DealCompany, a: DealAssumptions
       title: 'Regulatory / antitrust',
       rating: antitrust,
       headline: `${hsr ? 'HSR filing required' : 'Below HSR threshold'} · ${overlap}`,
-      detail: `Deal value is well ${hsr ? 'above' : 'below'} the ~$126M HSR size-of-transaction threshold. ${A.ticker} (SIC ${A.sic ?? 'n/a'}) and ${T.ticker} (SIC ${T.sic ?? 'n/a'}).${segNote} Overlap is a proxy only: a real review needs market-share data.`,
+      detail: `Deal value is well ${hsr ? 'above' : 'below'} the ~$126M HSR size-of-transaction threshold. ${A.ticker} (SIC ${A.sic ?? 'n/a'}) and ${T.ticker} (SIC ${T.sic ?? 'n/a'}).${segNote}${crossBorder} Overlap is a proxy only: a real review needs market-share data.`,
     },
     {
       id: 'credit',
