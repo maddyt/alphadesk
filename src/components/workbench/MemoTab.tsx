@@ -165,7 +165,7 @@ export function MemoTab({ ticker, a }: { ticker: string; a: Assumptions }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-mute">{title}</div>
@@ -175,7 +175,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** Underlines verified figures in green and unverified ones in red. */
-function Highlight({ text, checks }: { text: string; checks: { token: string; verified: boolean }[] }) {
+export function Highlight({ text, checks }: { text: string; checks: { token: string; verified: boolean }[] }) {
   const tokens = [...new Set(checks.map((c) => c.token))].sort((a, b) => b.length - a.length);
   if (!tokens.length) return <>{text}</>;
   const re = new RegExp(`(${tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g');

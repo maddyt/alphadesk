@@ -1,4 +1,38 @@
-# ValuationEngine AI
+# ValuationEngine AI + DealPulse
+
+Two apps on one Next.js site, sharing the SEC EDGAR pipeline, market data and design system:
+
+- **ValuationEngine AI** (`/`): what is one company worth? Five valuation methods on a football field.
+- **DealPulse** (`/deals`): what happens if one company buys another? M&A accretion/dilution teardown.
+
+Both layouts are responsive. On phones the controls move below the results, and a sticky bar keeps the answer visible while you drag sliders. Printable tear sheets and teasers scale to the screen width but print at full size.
+
+---
+
+## DealPulse: M&A accretion/dilution
+
+Pick a buyer and a target (e.g. `/deals/DIS/EA`). The app fetches both companies' SEC filings and live prices, then answers the first question every banker asks: **does the deal raise or lower the buyer's EPS?**
+
+| Feature | Notes |
+|---|---|
+| Ticker-pair picker | Buyer + target inputs, swap button, demo pairs (DIS+EA, MSFT+EA, NVDA+AMD, PEP+KHC, CVX+COP, COST+TGT) |
+| Sliders | Offer premium (0–50%); cash / stock / debt mix that always totals 100% (moving one rebalances the others), with presets; pre-tax synergies; plus rates and tax under a toggle |
+| Hurdle indicators | Breakeven synergies and highest accretive premium, shown as KPIs and as amber markers on the sliders |
+| Net income waterfall | Horizontal floating bars: acquirer NI + target NI + after-tax synergies − after-tax interest on new debt − forgone interest on cash = pro-forma NI |
+| Risk scorecard | Red/amber/green for antitrust (HSR threshold + SIC industry overlap as a proxy), credit (pro-forma debt/EBITDA: <2.5x green, >4x red), integration friction (relative size, industry, premium), and EPS impact |
+| Sensitivity | Accretion heatmaps: premium × synergies and premium × % paid in stock |
+| Deal terms | Offer price, equity and enterprise value, purchase multiples, sources of funds, ownership vs. earnings contribution |
+| AI rationale | Claude writes the strategic rationale, synergy sources and risks under a Zod schema. Every figure is checked against the engine (template fallback without an API key) |
+| SEC data | Inputs for both companies, each with its XBRL audit trail and accession number |
+| Deal teaser | One-page US Letter teaser for print or PDF |
+| Save teardown | Saves scenarios to Supabase (needs `0002_saved_deals.sql` and the Supabase env vars); without them, use "Copy link" since every scenario is in the URL |
+| API | `GET /api/deals?acquirer=DIS&target=EA&p=0.3&s=0.5` returns Zod-validated JSON |
+
+Engine (`src/lib/deals/engine.ts`) implements PRD §4 exactly: P_E = target market cap × (1 + premium); after-tax interest = new debt × r_d × (1 − t); forgone interest = cash used × r_c × (1 − t); NI_PF = NI_A + NI_T + synergies(1 − t) − interest − forgone interest; new shares = P_E × stock % ÷ acquirer price. It uses LTM net income from 10-K/10-Q XBRL and current cover-page share counts. Defaults: 30% premium, 30% debt at 6%, cash capped at half the buyer's cash, the rest in stock, synergies of 3% of target revenue, and the buyer's effective tax rate. Not modelled: transaction fees, purchase-price amortization, and synergy phase-in (noted on the teaser).
+
+---
+
+## ValuationEngine AI
 
 An SEC EDGAR valuation workbench. Type a ticker and the app pulls 10-K and 10-Q XBRL data straight from SEC EDGAR, runs five valuation methodologies concurrently, and plots them on an interactive **football field** you can stress-test with sliders. Every input traces back to its XBRL tag and SEC accession number.
 
@@ -60,10 +94,10 @@ npm run dev                     # http://localhost:3000
 
 With no keys at all, the app works fully in live mode: SEC EDGAR and Yahoo prices need no key, and the AI memo falls back to a deterministic template. To demo with no internet, set `DATA_MODE=snapshot`. That serves six bundled tickers (AAPL, NVDA, DIS, MSFT, COST, KO) from an approximate snapshot, clearly labelled.
 
-### 2. Supabase (optional: persistent cache and the "recently valued" feed)
+### 2. Supabase (optional: persistent cache, "recently valued" feed, saved deal teardowns)
 
 1. Create a project at supabase.com.
-2. In the SQL editor, run `supabase/migrations/0001_valuation_engine.sql`.
+2. In the SQL editor, run `supabase/migrations/0001_valuation_engine.sql` and `0002_saved_deals.sql`.
 3. Copy the **Project URL** and the **service_role key** (Settings → API).
 
 All database access is server-side with the service-role key. RLS is enabled with no policies, so the public anon key can do nothing.

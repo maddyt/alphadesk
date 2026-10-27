@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 export function Card({ title, subtitle, right, children, className = '' }: { title?: ReactNode; subtitle?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-2xl border border-line bg-panel/80 ${className}`}>
+    <section className={`min-w-0 rounded-2xl border border-line bg-panel/80 ${className}`}>
       {(title || right) && (
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line/70 px-5 py-3.5">
           <div>

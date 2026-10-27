@@ -184,3 +184,10 @@ export async function recentRuns(limit = 8): Promise<{ ticker: string; name: str
   const seen = new Set<string>();
   return (data ?? []).filter((r) => !seen.has(r.ticker) && seen.add(r.ticker)).slice(0, limit);
 }
+
+export async function savedDeals(limit = 8): Promise<{ id: string; acquirer: string; target: string; name: string; query: string; accretion: number }[]> {
+  const db = supabase();
+  if (!db) return [];
+  const { data } = await db.from('saved_deals').select('id, acquirer, target, name, query, accretion').order('created_at', { ascending: false }).limit(limit);
+  return data ?? [];
+}

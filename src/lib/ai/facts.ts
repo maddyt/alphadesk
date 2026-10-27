@@ -16,7 +16,7 @@ export interface FactEntry {
   display: string;
 }
 
-function show(v: number, unit: Unit, digits = 1): string {
+export function show(v: number, unit: Unit, digits = 1): string {
   switch (unit) {
     case 'usd': {
       const a = Math.abs(v);

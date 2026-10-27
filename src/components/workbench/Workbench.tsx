@@ -46,6 +46,7 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
   const [tab, setTab] = useState<TabId>('dcf');
   const [copied, setCopied] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
 
   const run = useMemo(() => runValuation(b, a), [b, a]);
   const wacc = useMemo(() => waccBuild(b, a.riskFree, a.erp, a.taxRate), [b, a.riskFree, a.erp, a.taxRate]);
@@ -109,7 +110,7 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
   const pos52 = (b.price - b.market52.low) / (b.market52.high - b.market52.low || 1);
 
   return (
-    <div className="mx-auto max-w-[1600px] px-4 pb-24 sm:px-6">
+    <div className="mx-auto max-w-[1600px] px-4 pb-32 sm:px-6 lg:pb-24">
       {/* ---------------------------------------------------------- Ticker header */}
       <section className="animate-fadeup pt-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -189,8 +190,8 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
 
       {/* -------------------------------------------------- Controls + football field */}
       <section className="mt-6 grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="order-2 lg:order-1">
-          <div className="rounded-2xl border border-line bg-panel/80 p-5 lg:sticky lg:top-20">
+        <aside ref={asideRef} className="order-2 scroll-mt-20 lg:order-1">
+          <div className="rounded-2xl border border-line bg-panel/80 p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-ink">What-if controls</h2>
               <span className="text-[10.5px] text-mute">chart updates instantly</span>
@@ -279,6 +280,25 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
           </div>
         </div>
       </section>
+
+      {/* Mobile: keep the answer visible while dragging sliders further down the page. */}
+      <div className="no-print fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 px-4 py-2.5 backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-xl items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-mute">Middle-of-the-road value</div>
+            <div className="num text-lg font-semibold text-[#8DB4FF]">
+              {price(run.compositePrice)} <span className={`text-xs font-medium ${upside >= 0 ? 'text-up' : 'text-down'}`}>{signedPct(upside)}</span>
+            </div>
+          </div>
+          <div className="num text-right text-[11px] text-sub">
+            Price {price(b.price)}
+            <div className="text-mute">WACC {pct(a.wacc, 2)}</div>
+          </div>
+          <button type="button" onClick={() => asideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white">
+            Adjust
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,12 +1,8 @@
 import Link from 'next/link';
 import { Nav } from '@/components/Nav';
 import { TickerSearch } from '@/components/TickerSearch';
-import { FootballFieldSvg } from '@/components/charts/FootballFieldSvg';
-import { DARK } from '@/components/charts/theme';
-import { snapshotDataset } from '@/lib/data/snapshot';
+import { HeroField } from '@/components/HeroField';
 import { recentRuns } from '@/lib/data/dataset';
-import { buildBaseInputs, defaultAssumptions, evToPrice } from '@/lib/engine/model';
-import { runValuation } from '@/lib/engine/valuation';
 import { price, signedPct } from '@/lib/format';
 
 export const revalidate = 60;
@@ -133,33 +129,6 @@ function Callout({ color, title, children }: { color: string; title: string; chi
   );
 }
 
-function HeroChart() {
-  const ds = snapshotDataset('AAPL');
-  if (!ds) return null;
-  const b = buildBaseInputs(ds);
-  const run = runValuation(b, defaultAssumptions(b));
-  const rows = run.ranges.map((r) => ({
-    range: r,
-    min: evToPrice(b, r.min),
-    p25: evToPrice(b, r.p25),
-    median: evToPrice(b, r.median),
-    p75: evToPrice(b, r.p75),
-    max: evToPrice(b, r.max),
-  }));
-  return (
-    <FootballFieldSvg
-      rows={rows}
-      current={b.price}
-      currentLabel="AAPL"
-      composite={run.compositePrice}
-      width={760}
-      theme={DARK}
-      format={(v) => `$${v.toFixed(0)}`}
-      axisFormat={(v) => `$${v.toFixed(0)}`}
-    />
-  );
-}
-
 export default async function Home() {
   const recent = await recentRuns();
   return (
@@ -212,11 +181,24 @@ export default async function Home() {
                 </div>
                 <span className="text-[11px] text-mute">Example: Apple, value per share by method (illustrative)</span>
               </div>
-              <div className="overflow-x-auto">
-                <HeroChart />
-              </div>
+              <HeroField />
             </div>
           </div>
+        </section>
+
+        {/* DealPulse cross-link */}
+        <section className="mx-auto max-w-[1400px] px-4 sm:px-6">
+          <Link
+            href="/deals"
+            className="group flex flex-col gap-4 rounded-2xl border border-mark/30 bg-gradient-to-r from-mark/10 via-panel to-panel p-5 transition hover:border-mark/60 sm:flex-row sm:items-center sm:justify-between sm:p-6"
+          >
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mark">New · DealPulse</div>
+              <div className="mt-1 text-lg font-semibold text-ink">What if one company bought another?</div>
+              <p className="mt-1 max-w-2xl text-[13.5px] text-sub">Pick a buyer and a target and see instantly whether the deal raises or lowers earnings per share, with risk flags and a one-page deal teaser.</p>
+            </div>
+            <span className="shrink-0 rounded-xl bg-mark px-4 py-2 text-sm font-semibold text-black transition group-hover:translate-x-0.5">Try an M&amp;A teardown →</span>
+          </Link>
         </section>
 
         {/* How it works */}

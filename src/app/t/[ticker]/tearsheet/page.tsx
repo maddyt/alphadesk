@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { FootballFieldSvg } from '@/components/charts/FootballFieldSvg';
 import { LIGHT } from '@/components/charts/theme';
 import { PrintButton } from '@/components/PrintButton';
+import { ScaleToFit } from '@/components/ScaleToFit';
 import { Logo } from '@/components/ui';
 import { TickerNotFoundError } from '@/lib/data/dataset';
 import { valuate } from '@/lib/data/valuate';
@@ -53,8 +54,8 @@ export default async function TearSheet({ params, searchParams }: Props) {
   const upside = run.compositePrice / b.price - 1;
 
   return (
-    <div className="theme-light min-h-screen bg-[#E9EDF2] py-8 print:bg-white print:py-0">
-      <div className="no-print mx-auto mb-6 flex max-w-[1280px] items-center justify-between px-2">
+    <div className="theme-light min-h-screen bg-[#E9EDF2] px-3 py-8 print:bg-white print:px-0 print:py-0">
+      <div className="no-print mx-auto mb-6 flex max-w-[1280px] flex-wrap items-center justify-between gap-3 px-2">
         <Link href={`/t/${b.ticker}${toQuery(a, defaults)}`} className="text-sm text-[#1D4ED8] hover:underline">
           ← Back to workbench
         </Link>
@@ -65,7 +66,9 @@ export default async function TearSheet({ params, searchParams }: Props) {
       </div>
 
       {/* ------------------------------------------------------------- Page 1 */}
-      <section className="page mx-auto flex flex-col bg-white text-[#0B1220] shadow-xl" style={{ width: W, height: H }}>
+      <div className="mx-auto max-w-[1280px]">
+      <ScaleToFit width={W} height={H}>
+      <section className="page flex flex-col bg-white text-[#0B1220] shadow-xl" style={{ width: W, height: H }}>
         <Header title="Preliminary valuation summary" name={b.name} ticker={b.ticker} asOf={asOf} page={1} />
         <div className="grid flex-1 grid-cols-[1fr_330px] gap-6 px-10 pt-5">
           <div>
@@ -146,9 +149,13 @@ export default async function TearSheet({ params, searchParams }: Props) {
         </div>
         <Footer live={live} sources={sources} cik={ds.company.cik} />
       </section>
+      </ScaleToFit>
+      </div>
 
       {/* ------------------------------------------------------------- Page 2 */}
-      <section className="page mx-auto mt-8 flex flex-col bg-white text-[#0B1220] shadow-xl print:mt-0" style={{ width: W, height: H }}>
+      <div className="mx-auto mt-8 max-w-[1280px] print:mt-0">
+      <ScaleToFit width={W} height={H}>
+      <section className="page flex flex-col bg-white text-[#0B1220] shadow-xl" style={{ width: W, height: H }}>
         <Header title="DCF, sensitivity and LBO detail" name={b.name} ticker={b.ticker} asOf={asOf} page={2} />
         <div className="grid flex-1 grid-cols-[1.45fr_1fr] gap-8 px-10 pt-5">
           <div>
@@ -275,6 +282,8 @@ export default async function TearSheet({ params, searchParams }: Props) {
         </div>
         <Footer live={live} sources={sources} cik={ds.company.cik} />
       </section>
+      </ScaleToFit>
+      </div>
     </div>
   );
 }

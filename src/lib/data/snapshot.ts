@@ -143,6 +143,22 @@ const SPECS: Record<string, SnapSpec> = {
     peers: [['PEP', 'PepsiCo', 13.5], ['MDLZ', 'Mondelez', 15.0], ['KDP', 'Keurig Dr Pepper', 14.0], ['MNST', 'Monster Beverage', 25.0], ['KHC', 'Kraft Heinz', 8.5]],
     peerBasis: 'Beverages & packaged food',
   },
+  EA: {
+    name: 'Electronic Arts Inc.',
+    cik: '0000712515',
+    sic: '7372',
+    sicDescription: 'Services-Prepackaged Software',
+    fyEnds: ['2023-03-31', '2024-03-31', '2025-03-31'],
+    revenue: [7426, 7562, 7463],
+    ebit: [1167, 1546, 1431],
+    latest: {
+      netIncome: 1121, da: 360, capex: 210, pretax: 1442, taxExpense: 321, interestExpense: 56,
+      cash: 2136, securities: 112, debt: 1882, ar: 637, inventory: 0, ap: 82, sharesOutstanding: 251,
+    },
+    market: { price: 144.72, low52: 124.9, high52: 168.5, beta: 0.75 },
+    peers: [['TTWO', 'Take-Two Interactive', 30.0], ['RBLX', 'Roblox', 60.0], ['NTES', 'NetEase', 11.0], ['MSFT', 'Microsoft', 22.0]],
+    peerBasis: 'Interactive entertainment',
+  },
 };
 
 export const SNAPSHOT_TICKERS = Object.keys(SPECS);
