@@ -40,6 +40,18 @@ export function DealWorkbench({ A, T, defaults, initial, warnings, macro }: { A:
   const [copied, setCopied] = useState(false);
   const [save, setSave] = useState<{ state: 'idle' | 'saving' | 'saved' | 'error'; msg?: string }>({ state: 'idle' });
   const controlsRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+
+  function openRoom() {
+    setTab('room');
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room`);
+    requestAnimationFrame(() => tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }
+
+  // Deep link: /deals/MSFT/EA#room opens the AI Deal Room tab.
+  useEffect(() => {
+    if (window.location.hash === '#room') openRoom();
+  }, []);
 
   const synMax = useMemo(() => synergyMax(T, A), [A, T]);
   const synStep = synergyStep(synMax);
@@ -68,7 +80,7 @@ export function DealWorkbench({ A, T, defaults, initial, warnings, macro }: { A:
   const live = A.source === 'sec-live' && T.source === 'sec-live';
 
   useEffect(() => {
-    window.history.replaceState(null, '', `${window.location.pathname}${query}`);
+    window.history.replaceState(null, '', `${window.location.pathname}${query}${window.location.hash}`);
     setSave({ state: 'idle' });
   }, [query]);
 
@@ -110,6 +122,13 @@ export function DealWorkbench({ A, T, defaults, initial, warnings, macro }: { A:
             What if {A.name.replace(/,? Inc\.?$| Corporation$/, '')} bought {T.name.replace(/,? Inc\.?$| Corporation$/, '')}?
           </h1>
           <div className="no-print flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={openRoom}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-brand/60 bg-brand/15 px-3.5 py-2 text-xs font-semibold text-[#8DB4FF] transition hover:bg-brand/25"
+            >
+              ✦ AI Deal Room
+            </button>
             <button type="button" onClick={copyLink} className="rounded-xl border border-line bg-panel px-3.5 py-2 text-xs font-medium text-sub transition hover:border-brand/50 hover:text-ink">
               {copied ? '✓ Link copied' : 'Copy link'}
             </button>
@@ -245,7 +264,7 @@ export function DealWorkbench({ A, T, defaults, initial, warnings, macro }: { A:
           </div>
 
           {/* --------------------------------------------------------- Tabs */}
-          <div>
+          <div ref={tabsRef} className="scroll-mt-20">
             <div className="no-print mb-5 flex gap-1 overflow-x-auto rounded-xl border border-line bg-panel/60 p-1">
               {TABS.map((t) => (
                 <button
