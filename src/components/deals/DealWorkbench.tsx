@@ -15,12 +15,14 @@ import { AuditModal } from '../workbench/FinancialsTab';
 import { DealControls } from './DealControls';
 import { DealHeatmap, Waterfall } from './DealCharts';
 import { DealMemoTab } from './DealMemoTab';
+import { DealRoomTab } from './DealRoomTab';
 import { waterSteps } from './steps';
 
 const TABS = [
   { id: 'sensitivity', label: 'Sensitivity' },
   { id: 'terms', label: 'Deal terms' },
   { id: 'overlap', label: 'Overlap & target diligence' },
+  { id: 'room', label: 'AI Deal Room' },
   { id: 'rationale', label: 'AI rationale' },
   { id: 'sec', label: 'SEC data' },
 ] as const;
@@ -253,7 +255,7 @@ export function DealWorkbench({ A, T, defaults, initial, warnings, macro }: { A:
                   className={`whitespace-nowrap rounded-lg px-4 py-2 text-[13px] font-medium transition ${tab === t.id ? 'bg-raised text-ink ring-1 ring-line' : 'text-mute hover:text-sub'}`}
                 >
                   {t.label}
-                  {t.id === 'rationale' && <span className="ml-1.5 rounded bg-brand/20 px-1 py-px text-[9.5px] font-bold text-[#8DB4FF]">AI</span>}
+                  {(t.id === 'rationale' || t.id === 'room') && <span className="ml-1.5 rounded bg-brand/20 px-1 py-px text-[9.5px] font-bold text-[#8DB4FF]">AI</span>}
                 </button>
               ))}
             </div>
@@ -322,6 +324,9 @@ export function DealWorkbench({ A, T, defaults, initial, warnings, macro }: { A:
                     <p className="text-sm text-sub">{lT ? `Loading ${T.ticker} filings…` : 'Target SEC feeds unavailable.'}</p>
                   )}
                 </div>
+              )}
+              {tab === 'room' && (
+                <DealRoomTab acquirer={A.ticker} target={T.ticker} query={query} currentSynergies={a.synergies} onApplySynergies={(v) => setA((p) => ({ ...p, synergies: Math.min(v, synergyMax(T, A)) }))} />
               )}
               {tab === 'rationale' && <DealMemoTab acquirer={A.ticker} target={T.ticker} query={query} />}
               {tab === 'sec' && <SecData A={A} T={T} />}

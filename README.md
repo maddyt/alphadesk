@@ -9,6 +9,41 @@ Both layouts are responsive. On phones the controls move below the results, and 
 
 ---
 
+## DealPulse AI Deal Room (agentic extension)
+
+A new **AI Deal Room** tab on every deal runs three Claude agents in parallel and streams their progress live:
+
+| Agent | What it does | How it is checked |
+| --- | --- | --- |
+| **Model Audit** | Reviews every XBRL input behind the EPS math: periods, derived figures, tax rate, FX, IFRS 16 and leverage | Findings reference fact-sheet ids. The engine numbers are not changed |
+| **Synergy & Market** | Reads both annual reports (focused: Items 1 and 7 plus the segment note; or the whole filing) and sizes cost and revenue synergies with a 3-year phase-in, regional overlap and an HSR score | Every quote is matched against the filing text and shown with its accession number and line. The engine re-runs accretion for years 1 to 3 with the phased synergies. "Use in the model" moves the synergy slider |
+| **Risk & Governance** | Investigates the target through the SEC EDGAR tools: governance flags, Form 4, 13D/13G, risk factors, full-text search and golden parachutes. Builds a likelihood × impact risk matrix | Quotes are checked against the filings and the tool output. Every tool call is shown in the trace |
+
+- **Model:** every call goes to Claude through one `ANTHROPIC_API_KEY` and uses structured (Zod) outputs.
+- **Cost:** a focused run costs under about $1. A whole-filing run costs about $1–2. Each run shows its own token count and cost estimate.
+- **Caching:** results are cached for 24 hours per deal, scenario and mode (in memory, and in Supabase `feed_cache` when configured).
+- **Without a key:** the tab explains how to add the key.
+
+### SEC EDGAR MCP server (`/api/mcp`)
+
+The same 8 read-only tools are served over the Model Context Protocol (Streamable HTTP, stateless JSON). Any MCP client can use them:
+
+```bash
+claude mcp add --transport http sec-edgar https://<your-app>.vercel.app/api/mcp
+```
+
+The tools are:
+- `get_company_financials`
+- `list_filings`
+- `read_filing_section` (business, risk factors, MD&A, segments, change in control)
+- `search_filing`
+- `get_governance_flags`
+- `get_insider_activity`
+- `get_ownership_filings`
+- `get_segment_revenue`
+
+Code: `src/lib/mcp/` (protocol and tools), `src/lib/agents/` (agents, orchestrator, citation checks), `src/app/api/deals/room` (NDJSON stream), `src/components/deals/DealRoomTab.tsx`.
+
 ## Cross-border M&A: foreign (20-F) filers in DealPulse
 
 DealPulse accepts non-US companies as acquirer or target (e.g. `/deals/NVDA/ASML`, `/deals/SAP/CRM`). ValuationEngine stays US-only (10-K, US GAAP, USD); a foreign ticker there shows a notice linking to DealPulse.
