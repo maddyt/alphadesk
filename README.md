@@ -21,7 +21,7 @@ A new **AI Deal Room** tab on every deal runs three Claude agents in parallel an
 
 - **Model:** every call goes to Claude through one `ANTHROPIC_API_KEY` and uses structured (Zod) outputs.
 - **Cost:** a focused run costs under about $1. A whole-filing run costs about $1–2. Each run shows its own token count and cost estimate.
-- **Caching:** results are cached for 24 hours per deal, scenario and mode (in memory, and in Supabase `feed_cache` when configured).
+- **Caching and history:** identical re-runs replay from a 24-hour cache. With Supabase, every run is also kept in `deal_room_runs`: run history, share links and cross-device export.
 - **Without a key:** the tab explains how to add the key.
 
 ### SEC EDGAR MCP server (`/api/mcp`)
@@ -163,13 +163,38 @@ npm run dev                     # http://localhost:3000
 
 With no keys at all, the app works fully in live mode: SEC EDGAR and Yahoo prices need no key, and the AI memo falls back to a deterministic template. To demo with no internet, set `DATA_MODE=snapshot`. That serves six bundled tickers (AAPL, NVDA, DIS, MSFT, COST, KO) from an approximate snapshot, clearly labelled.
 
-### 2. Supabase (optional: persistent cache, "recently valued" feed, saved deal teardowns)
+### 2. Supabase (recommended: history, sharing, caching, AI spend guard)
 
 1. Create a project at supabase.com.
-2. In the SQL editor, run `supabase/migrations/0001_valuation_engine.sql`, `0002_saved_deals.sql` and `0003_feed_cache.sql`.
-3. Copy the **Project URL** and the **service_role key** (Settings → API).
+2. In the **SQL Editor**, paste all of `supabase/setup.sql` and click **Run**. It creates every table (migrations 0001–0004 in order) and is safe to run again.
+3. Copy the **Project URL** and the **secret / service_role key** (Project Settings → API Keys).
+4. After deploying, open **`/status`** on the site. Every table should show a green ✓.
 
-All database access is server-side with the service-role key. RLS is enabled with no policies, so the public anon key can do nothing.
+| Table | What it gives you |
+|---|---|
+| `company_cache` | Parsed XBRL financials shared by all serverless instances (12h), so cold starts don't re-download multi-MB SEC files |
+| `valuation_runs` | The "recently valued" feed on the home page |
+| `saved_deals` | **Save teardown** button and the saved list on the M&A Deals page |
+| `feed_cache` | Shared cache for SEC feeds (segments, Form 4, 13D/G, 8-K), Treasury yield curve, FX rates, golden-parachute extractions (30 days per filing) and AI memos (24h per identical fact sheet, so repeat clicks cost nothing) |
+| `deal_room_runs` | Every AI Deal Room run, kept permanently: **run history**, **share links** that open the 3-page teaser on any device, and exports that survive cold starts |
+| `ai_usage` | Every Claude call with tokens and cost. Powers the **daily budget guard**. The `ai_spend_daily` view shows spend by day and feature |
+| `filing_docs` | Full text of 10-K / 20-F / proxy filings, by accession number. Deal Room re-runs and MCP calls skip the download |
+| `mcp_calls` | Log of SEC EDGAR MCP tool calls, from external clients and the Risk agent |
+
+All database access is server-side with the secret key. RLS is enabled with no policies, so the public anon key can read or write nothing.
+
+**Housekeeping (optional):** `select public.purge_stale_rows();` deletes expired cache rows (older than 31 days) and logs older than a year. To run it nightly, enable the **pg_cron** extension (Database → Extensions) and run:
+
+```sql
+select cron.schedule('purge-stale-rows', '17 3 * * *', 'select public.purge_stale_rows()');
+```
+
+**AI spend guard** (works with or without Supabase, but only Supabase makes it reliable across instances):
+
+| Variable | Default | Effect |
+|---|---|---|
+| `AI_DAILY_BUDGET_USD` | `25` | Claude calls stop for the day (UTC) once logged spend reaches this. `0` turns it off |
+| `AI_ROOM_RUNS_PER_IP_PER_DAY` | `10` | Fresh AI Deal Room runs per visitor per day. Cached replays and saved runs are free. `0` turns it off |
 
 ### 3. Vercel
 
@@ -180,7 +205,8 @@ All database access is server-side with the service-role key. RLS is enabled wit
 |---|---|---|
 | `SEC_USER_AGENT` | **yes** | e.g. `ValuationEngine AI your-name@gmail.com` (SEC fair-access policy) |
 | `ANTHROPIC_API_KEY` | for the AI memo | from console.anthropic.com |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | optional | from step 2 |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | recommended | from step 2 |
+| `AI_DAILY_BUDGET_USD`, `AI_ROOM_RUNS_PER_IP_PER_DAY` | optional | AI spend guard (see step 2) |
 | `FMP_API_KEY` | optional | alternative price source |
 
 3. Deploy. The first load of each ticker downloads its full XBRL history (a few MB per company, plus peers) and takes about 5–15 seconds. After that it's served from cache.

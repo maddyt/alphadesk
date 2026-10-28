@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
-import { extractParachutes, type ProxyResult } from '@/lib/ai/proxy';
-import { cached } from '@/lib/data/cache';
+import type { ProxyResult } from '@/lib/ai/proxy';
+import { cachedParachutes } from '@/lib/data/parachutes';
+import { checkAiBudget, ipHash } from '@/lib/db/usage';
 import { getIntel } from '@/lib/data/intel';
 
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
 
 // POST /api/proxy/AAPL -> change-of-control payouts extracted from the latest DEF 14A (cached per filing)
-export async function POST(_req: Request, { params }: { params: { ticker: string } }) {
+export async function POST(req: Request, { params }: { params: { ticker: string } }) {
   try {
     const intel = await getIntel(params.ticker);
     if (!intel.proxy) {
@@ -15,14 +16,9 @@ export async function POST(_req: Request, { params }: { params: { ticker: string
       return NextResponse.json(r);
     }
     const proxy = intel.proxy;
-    // Cache real extractions per filing; errors and missing-key results are returned uncached so a fix takes effect immediately.
-    const result = await cached(`coc:${intel.ticker}:${proxy.accessionNumber}`, 30 * 86400_000, async () => {
-      const r = await extractParachutes(proxy);
-      if (r.status === 'needs_key' || r.status === 'error') throw Object.assign(new Error(r.message ?? 'uncached'), { result: r });
-      return r;
-    }).catch((e: Error & { result?: ProxyResult }) => {
-      if (e.result) return e.result;
-      throw e;
+    const result = await cachedParachutes(intel.ticker, proxy, async () => {
+      const b = await checkAiBudget('proxy', ipHash(req));
+      return b.ok ? null : { status: 'error', message: b.reason, url: proxy.url, filingDate: proxy.filingDate, executives: [], verifiedTotal: 0 };
     });
     return NextResponse.json(result);
   } catch (e) {

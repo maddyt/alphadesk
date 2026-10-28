@@ -1,4 +1,5 @@
 import 'server-only';
+import { cacheGet, cachePut } from '../data/cache.ts';
 
 // Spot FX for converting foreign filers' statements to USD. ECB reference rates via
 // Frankfurter first (no key), then open.er-api.com, which also covers currencies the
@@ -36,6 +37,11 @@ export async function getUsdRate(ccy: string): Promise<FxRate> {
   if (ccy === 'USD') return { currency: 'USD', rate: 1, asOf: '', source: 'n/a' };
   const hit = cache.get(ccy);
   if (hit && Date.now() - hit.at < TTL) return hit.value;
+  const shared = await cacheGet<FxRate>(`fx:${ccy}`, TTL).catch(() => undefined);
+  if (shared) {
+    cache.set(ccy, { at: Date.now(), value: shared });
+    return shared;
+  }
   let value: FxRate;
   try {
     value = await frankfurter(ccy);
@@ -43,5 +49,6 @@ export async function getUsdRate(ccy: string): Promise<FxRate> {
     value = await openEr(ccy);
   }
   cache.set(ccy, { at: Date.now(), value });
+  await cachePut(`fx:${ccy}`, value).catch(() => undefined);
   return value;
 }

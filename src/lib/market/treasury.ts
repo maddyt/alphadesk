@@ -1,6 +1,7 @@
 import 'server-only';
 import { parseFredCsv, parseTreasuryCsv, type YieldCurve } from '../sec/parsers.ts';
 import { RISK_FREE_DEFAULT } from '../engine/model.ts';
+import { cacheGet, cachePut } from '../data/cache.ts';
 
 // PRD v2 appendix E: live risk-free rate from the U.S. Treasury daily par yield curve,
 // falling back to FRED's DGS10 series, then to a static default.
@@ -25,6 +26,12 @@ async function fred(): Promise<YieldCurve | null> {
 export async function getYieldCurve(): Promise<YieldCurve> {
   if (process.env.DATA_MODE === 'snapshot') return { date: '', points: [], tenYear: RISK_FREE_DEFAULT, source: 'Static default (offline snapshot mode)' };
   if (cache && Date.now() - cache.at < TTL) return cache.value;
+  // Shared across instances via Supabase feed_cache (cold starts skip Treasury.gov).
+  const shared = await cacheGet<YieldCurve>('macro:yield-curve', TTL).catch(() => undefined);
+  if (shared) {
+    cache = { at: Date.now(), value: shared };
+    return shared;
+  }
   const year = new Date().getUTCFullYear();
   let curve: YieldCurve | null = null;
   try {
@@ -40,6 +47,9 @@ export async function getYieldCurve(): Promise<YieldCurve> {
     }
   }
   const value = curve ?? { date: '', points: [], tenYear: RISK_FREE_DEFAULT, source: 'Static default (live yield curve unavailable)' };
-  if (curve) cache = { at: Date.now(), value };
+  if (curve) {
+    cache = { at: Date.now(), value };
+    await cachePut('macro:yield-curve', value).catch(() => undefined);
+  }
   return value;
 }

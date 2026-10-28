@@ -1,4 +1,5 @@
 import 'server-only';
+import { fromSdkUsage, recordAiUsage } from '../db/usage.ts';
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
@@ -105,6 +106,7 @@ export async function extractParachutes(proxy: { url: string; filingDate: string
         'You extract data from SEC proxy statements. Copy numbers exactly as printed (convert to plain USD numbers, no rounding). Use the scenario for termination without cause or for good reason following a change in control; if absent, use the change-in-control column. Do not invent executives or amounts.',
       messages: [{ role: 'user', content: `Extract each named executive officer's payouts from this proxy excerpt:\n\n${window}` }],
     });
+    await recordAiUsage({ feature: 'proxy', subject: proxy.url, model: MODEL, usage: fromSdkUsage(response.usage) });
     const out = response.parsed_output;
     if (response.stop_reason === 'refusal' || !out) return { status: 'error', message: 'The model returned no structured output.', url: proxy.url, filingDate: proxy.filingDate, executives: [], verifiedTotal: 0 };
     if (!out.found || out.executives.length === 0) return { status: 'not_found', message: 'The proxy excerpt has no change-in-control payments table.', url: proxy.url, filingDate: proxy.filingDate, executives: [], verifiedTotal: 0 };

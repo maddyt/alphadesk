@@ -2,11 +2,14 @@ import 'server-only';
 import Anthropic from '@anthropic-ai/sdk';
 import { createHash } from 'node:crypto';
 import { MODEL } from '../ai/memo.ts';
-import { extractParachutes, type ProxyResult } from '../ai/proxy.ts';
+import type { ProxyResult } from '../ai/proxy.ts';
+import { cachedParachutes } from '../data/parachutes.ts';
+import { checkAiBudget, recordAiUsage } from '../db/usage.ts';
+import { logToolCall } from '../db/mcp-log.ts';
+import { saveRoomRun } from '../db/rooms.ts';
 import { cacheGet, cachePut } from '../data/cache.ts';
 import { getIntel } from '../data/intel.ts';
-import { normalizeTicker } from '../data/dataset.ts';
-import { hasResults, type SavedRun } from './room-state.ts';
+import { hasResults } from './room-state.ts';
 import { buildDealFacts } from '../deals/facts.ts';
 import { readDealOverrides } from '../deals/params.ts';
 import { dealRun } from '../deals/run.ts';
@@ -39,22 +42,16 @@ export type RoomEvent =
   | { type: 'risk'; data: RiskReport }
   | { type: 'usage'; usage: Usage; costUsd: number; model: string }
   | { type: 'done'; ms: number }
+  | { type: 'saved'; id: string | null; savedAt: string }
   | { type: 'error'; message: string };
 
 const TTL = 24 * 3600_000;
-const SAVED_TTL = 30 * 24 * 3600_000;
-const latestKey = (a: string, t: string) => `room:latest:${a}:${t}`;
-
-/** The most recent saved Deal Room run for a pair (memory, or Supabase feed_cache when configured). */
-export async function latestRun(acquirer: string, target: string): Promise<SavedRun | null> {
-  return (await cacheGet<SavedRun>(latestKey(normalizeTicker(acquirer), normalizeTicker(target)), SAVED_TTL)) ?? null;
-}
 
 function sourceDoc(d: FilingDoc | null, label: string): SourceDoc | undefined {
   return d ? { text: d.text, label, form: d.form, accessionNumber: d.accessionNumber, filingDate: d.filingDate, url: d.url } : undefined;
 }
 
-export async function* runDealRoom(input: { acquirer: string; target: string; query: string; mode: Mode; refresh?: boolean }): AsyncGenerator<RoomEvent> {
+export async function* runDealRoom(input: { acquirer: string; target: string; query: string; mode: Mode; refresh?: boolean; ip?: string | null }): AsyncGenerator<RoomEvent> {
   const t0 = Date.now();
   if (!process.env.ANTHROPIC_API_KEY) {
     yield { type: 'needs_key', message: 'The AI Deal Room runs Claude agents. Add ANTHROPIC_API_KEY to the Vercel project (Settings → Environment Variables) and redeploy.' };
@@ -70,6 +67,13 @@ export async function* runDealRoom(input: { acquirer: string; target: string; qu
       for (const e of hit) yield e.type === 'start' ? { ...e, cached: true } : e;
       return;
     }
+  }
+
+  // Cached replays above are free; fresh runs count against the daily AI budget.
+  const budget = await checkAiBudget('deal_room', input.ip ?? null);
+  if (!budget.ok) {
+    yield { type: 'error', message: budget.reason! };
+    return;
   }
 
   const facts = buildDealFacts(d.A, d.T, d.a, d.r);
@@ -142,16 +146,20 @@ export async function* runDealRoom(input: { acquirer: string; target: string; qu
       let parachutes: ProxyResult | null = null;
       if (tgtIntel?.proxy) {
         const s = Date.now();
-        parachutes = await extractParachutes(tgtIntel.proxy).catch(() => null);
+        parachutes = await cachedParachutes(d.T.ticker, tgtIntel.proxy).catch(() => null);
+        void logToolCall({ source: 'deal_room', tool: 'extract_golden_parachutes', args: { ticker: d.T.ticker }, ok: parachutes?.status === 'ok', ms: Date.now() - s, chars: 0 });
         emit({ type: 'tool', agent: 'risk', call: { name: 'extract_golden_parachutes', input: { ticker: d.T.ticker }, ms: Date.now() - s, chars: 0, ok: parachutes?.status === 'ok' } });
       }
-      const { out, transcript } = await riskAgent(client, usage, { A: d.A, T: d.T, parachutes, onTool: (call) => emit({ type: 'tool', agent: 'risk', call }) });
+      const { out, transcript } = await riskAgent(client, usage, { A: d.A, T: d.T, parachutes, onTool: (call) => {
+          emit({ type: 'tool', agent: 'risk', call });
+          void logToolCall({ source: 'deal_room', tool: call.name, args: call.input, ok: call.ok, ms: call.ms, chars: call.chars });
+        } });
       const withTool = { ...docs, tool: { text: transcript, label: 'SEC EDGAR tool results', form: 'MCP', accessionNumber: '', filingDate: '', url: '' } };
       const risk = cleanRisk(out);
       emit({ type: 'risk', data: { ...risk, risks: risk.risks.map((r) => ({ ...r, cite: verifyCite(r.cite, withTool) })), parachutes } });
     }),
   ]).then(() => {
-    // Parachute extraction runs its own Claude call; its usage is not itemised here.
+    // Parachute extraction runs its own (cached) Claude call and is logged separately as 'proxy'.
     emit({ type: 'usage', usage, costUsd: costUsd(usage), model: MODEL });
     emit({ type: 'done', ms: Date.now() - t0 });
   });
@@ -167,8 +175,12 @@ export async function* runDealRoom(input: { acquirer: string; target: string; qu
     await new Promise<void>((r) => (wake = r));
     wake = null;
   }
-  // Keep every run that produced something, even if one agent failed, so it can be exported.
-  if (hasResults(log)) await cachePut<SavedRun>(latestKey(d.A.ticker, d.T.ticker), { v: 1, acquirer: d.A.ticker, target: d.T.ticker, query: input.query, mode: input.mode, savedAt: new Date().toISOString(), events: log });
+  await recordAiUsage({ feature: 'deal_room', subject: `${d.A.ticker}+${d.T.ticker}`, model: MODEL, usage, ip: input.ip });
+  // Keep every run that produced something, even if one agent failed, so it can be reopened and exported.
+  if (hasResults(log)) {
+    const saved = await saveRoomRun({ v: 1, acquirer: d.A.ticker, target: d.T.ticker, query: input.query, mode: input.mode, savedAt: new Date().toISOString(), events: log });
+    yield { type: 'saved', id: saved.id ?? null, savedAt: saved.savedAt };
+  }
   if (!failed.length) await cachePut(key, log);
 }
 

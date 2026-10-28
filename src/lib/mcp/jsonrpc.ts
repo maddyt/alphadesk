@@ -31,7 +31,9 @@ export function toolListing(tools: readonly McpTool[]) {
 }
 
 /** Handle one JSON-RPC message. Returns null for notifications (no response body). */
-export async function handleRpc(msg: JsonRpcRequest, tools: readonly McpTool[]): Promise<object | null> {
+export type CallLogger = (c: { tool: string; args: unknown; ok: boolean; ms: number; chars: number }) => Promise<void> | void;
+
+export async function handleRpc(msg: JsonRpcRequest, tools: readonly McpTool[], onCall?: CallLogger): Promise<object | null> {
   if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return fail(null, -32600, 'Invalid Request');
   const isNotification = msg.id === undefined;
   switch (msg.method) {
@@ -55,10 +57,13 @@ export async function handleRpc(msg: JsonRpcRequest, tools: readonly McpTool[]):
       if (!tool) return fail(msg.id, -32602, `Unknown tool: ${name}`);
       const parsed = tool.schema.safeParse(msg.params?.arguments ?? {});
       if (!parsed.success) return ok(msg.id, { content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.message}` }], isError: true });
+      const t0 = Date.now();
       try {
         const text = await tool.run(parsed.data as never);
+        await onCall?.({ tool: name, args: parsed.data, ok: true, ms: Date.now() - t0, chars: text.length });
         return ok(msg.id, { content: [{ type: 'text', text }], isError: false });
       } catch (e) {
+        await onCall?.({ tool: name, args: parsed.data, ok: false, ms: Date.now() - t0, chars: 0 });
         return ok(msg.id, { content: [{ type: 'text', text: `Tool error: ${(e as Error).message}` }], isError: true });
       }
     }

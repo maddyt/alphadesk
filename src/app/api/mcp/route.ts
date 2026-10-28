@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { handleRpc } from '@/lib/mcp/jsonrpc';
 import { SEC_TOOLS } from '@/lib/mcp/tools';
+import { logToolCall } from '@/lib/db/mcp-log';
 
 // SEC EDGAR MCP server (Streamable HTTP transport, stateless, JSON responses).
 // Connect from Claude Code:  claude mcp add --transport http sec-edgar https://<your-app>/api/mcp
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
   }
   const batch = Array.isArray(body);
   const msgs = (batch ? body : [body]) as Parameters<typeof handleRpc>[0][];
-  const out = (await Promise.all(msgs.map((m) => handleRpc(m, SEC_TOOLS)))).filter((r) => r !== null);
+  const out = (await Promise.all(msgs.map((m) => handleRpc(m, SEC_TOOLS, (c) => logToolCall({ source: 'mcp', ...c }))))).filter((r) => r !== null);
   if (!out.length) return new Response(null, { status: 202, headers: CORS });
   return NextResponse.json(batch ? out : out[0], { headers: CORS });
 }

@@ -31,3 +31,12 @@ export async function cached<T>(key: string, ttlMs: number, load: () => Promise<
   await cachePut(key, value);
   return value;
 }
+
+/** Like cached(), but only stores results that pass `keep` (e.g. real AI output, not a fallback template). */
+export async function cachedIf<T>(key: string, ttlMs: number, load: () => Promise<T>, keep: (v: T) => boolean): Promise<T> {
+  const hit = await cacheGet<T>(key, ttlMs);
+  if (hit !== undefined) return hit;
+  const value = await load();
+  if (keep(value)) await cachePut(key, value);
+  return value;
+}

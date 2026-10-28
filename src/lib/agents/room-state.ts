@@ -19,11 +19,15 @@ export interface RoomState {
   risk?: RiskReport;
   usage?: { usage: Usage; costUsd: number; model: string };
   ms?: number;
+  /** Database id of the stored run (Supabase), for the share link. */
+  savedId?: string | null;
 }
 
 /** A finished run as stored in the browser and on the server. */
 export interface SavedRun {
   v: 1;
+  /** Database id when the run is stored in Supabase `deal_room_runs` (shareable link). */
+  id?: string;
   acquirer: string;
   target: string;
   query: string;
@@ -60,6 +64,8 @@ export function reduceRoom(s: RoomState, e: RoomEvent): RoomState {
       return { ...s, usage: { usage: e.usage, costUsd: e.costUsd, model: e.model } };
     case 'done':
       return { ...s, status: 'done', ms: e.ms };
+    case 'saved':
+      return { ...s, savedId: e.id };
   }
 }
 
@@ -92,12 +98,33 @@ export function loadRunLocal(acquirer: string, target: string): SavedRun | null 
   }
 }
 
-/** Latest saved run for the pair: this browser first, then the server copy. */
-export async function loadRun(acquirer: string, target: string): Promise<SavedRun | null> {
-  const local = loadRunLocal(acquirer, target);
-  const remote = await fetch(`/api/deals/room?acquirer=${encodeURIComponent(acquirer)}&target=${encodeURIComponent(target)}`)
-    .then((r) => (r.ok ? (r.json() as Promise<SavedRun>) : null))
+/** Summary row for the run-history list (Supabase only). */
+export interface RunSummary {
+  id: string;
+  query: string;
+  mode: 'focused' | 'whole';
+  status: 'complete' | 'partial';
+  cost_synergies: number | null;
+  hsr_score: number | null;
+  audit_verdict: string | null;
+  risk_count: number | null;
+  cost_usd: number;
+  created_at: string;
+}
+
+const getJson = <T,>(url: string) =>
+  fetch(url)
+    .then((r) => (r.ok ? (r.json() as Promise<T>) : null))
     .catch(() => null);
+
+/** A specific stored run (shared link), else the latest for the pair: this browser or the server, whichever is newer. */
+export async function loadRun(acquirer: string, target: string, id?: string | null): Promise<SavedRun | null> {
+  if (id) {
+    const byId = await getJson<SavedRun>(`/api/deals/room?id=${encodeURIComponent(id)}`);
+    if (byId) return byId;
+  }
+  const local = loadRunLocal(acquirer, target);
+  const remote = await getJson<SavedRun>(`/api/deals/room?acquirer=${encodeURIComponent(acquirer)}&target=${encodeURIComponent(target)}`);
   if (local && remote) return Date.parse(remote.savedAt) > Date.parse(local.savedAt) ? remote : local;
   return local ?? remote;
 }

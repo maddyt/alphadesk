@@ -1,4 +1,5 @@
 import 'server-only';
+import { fromSdkUsage, recordAiUsage } from '../db/usage.ts';
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
@@ -82,6 +83,7 @@ export async function generateMemo(ctx: { ticker: string; name: string; peerBasi
         },
       ],
     });
+    await recordAiUsage({ feature: 'valuation_memo', subject: ctx.ticker, model: MODEL, usage: fromSdkUsage(response.usage) });
     if (response.stop_reason === 'refusal' || !response.parsed_output) {
       return check(templateMemo(ctx), ctx.facts, 'template', 'The model declined or returned no structured output; showing the template memo.');
     }

@@ -16,11 +16,11 @@ const NAVY = '#0F1A33';
 const CAT: Record<string, string> = { regulatory: '#D97706', integration: '#2563EB', financial: '#DC2626', legal: '#7C3AED', governance: '#059669', market: '#0891B2', people: '#DB2777' };
 const RAG = { green: '#16A34A', amber: '#D97706', red: '#DC2626' } as const;
 
-export function DealRoomExport({ acquirer, target, query, backHref }: { acquirer: string; target: string; query: string; backHref: string }) {
+export function DealRoomExport({ acquirer, target, query, backHref, runId }: { acquirer: string; target: string; query: string; backHref: string; runId?: string }) {
   const [state, setState] = useState<{ status: 'loading' } | { status: 'none' } | { status: 'ok'; run: SavedRun; s: RoomState }>({ status: 'loading' });
   useEffect(() => {
-    loadRun(acquirer, target).then((run) => setState(run && hasResults(run.events) ? { status: 'ok', run, s: roomFromEvents(run.events) } : { status: 'none' }));
-  }, [acquirer, target]);
+    loadRun(acquirer, target, runId).then((run) => setState(run && hasResults(run.events) ? { status: 'ok', run, s: roomFromEvents(run.events) } : { status: 'none' }));
+  }, [acquirer, target, runId]);
 
   if (state.status === 'loading') return <p className="no-print mx-auto mt-6 max-w-[816px] text-center text-sm text-[#3F4A5A]">Loading AI Deal Room findings…</p>;
   if (state.status === 'none')

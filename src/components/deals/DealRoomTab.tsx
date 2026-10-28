@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentId, RiskReport, RoomEvent, SynergyReport } from '@/lib/agents/room';
 import type { AuditOut } from '@/lib/agents/schemas';
 import type { PhaseRow, VerifiedCite } from '@/lib/agents/verify';
-import { freshRoom as fresh, hasResults, loadRun, reduceRoom as reduce, roomFromEvents, saveRunLocal, type RoomState, type SavedRun } from '@/lib/agents/room-state';
+import { freshRoom as fresh, hasResults, loadRun, reduceRoom as reduce, roomFromEvents, saveRunLocal, type RoomState, type RunSummary, type SavedRun } from '@/lib/agents/room-state';
 import { money, pct, signedPct } from '@/lib/format';
 import { Badge, Card } from '../ui';
 
@@ -45,7 +45,17 @@ export function DealRoomTab({ acquirer, target, query, currentSynergies, onApply
     const events: RoomEvent[] = [];
     const persist = () => {
       if (!hasResults(events)) return;
-      const run: SavedRun = { v: 1, acquirer, target, query: query.replace(/^\?/, ''), mode, savedAt: new Date().toISOString(), events };
+      const stored = events.find((e): e is Extract<RoomEvent, { type: 'saved' }> => e.type === 'saved');
+      const run: SavedRun = {
+        v: 1,
+        id: stored?.id ?? undefined,
+        acquirer,
+        target,
+        query: query.replace(/^\?/, ''),
+        mode,
+        savedAt: stored?.savedAt ?? new Date().toISOString(),
+        events: events.filter((e) => e.type !== 'saved'),
+      };
       saveRunLocal(run);
       setSaved(run);
     };
@@ -143,6 +153,19 @@ export function DealRoomTab({ acquirer, target, query, currentSynergies, onApply
           <McpCallout />
         </div>
         {saved && !running && <SavedBar run={saved} />}
+        {!running && (
+          <RunHistory
+            acquirer={acquirer}
+            target={target}
+            current={saved?.id}
+            refreshKey={saved?.savedAt}
+            onOpen={(run) => {
+              setSaved(run);
+              setMode(run.mode);
+              setS(roomFromEvents(run.events));
+            }}
+          />
+        )}
         {s.status === 'needs_key' && <Notice tone="amber">{s.message}</Notice>}
         {s.status === 'error' && <Notice tone="down">{s.message}</Notice>}
       </Card>
@@ -165,8 +188,21 @@ export function DealRoomTab({ acquirer, target, query, currentSynergies, onApply
   );
 }
 
+function teaserHref(run: { acquirer: string; target: string; query: string; id?: string }) {
+  const q = new URLSearchParams(run.query);
+  if (run.id) q.set('room', run.id);
+  const qs = q.toString();
+  return `/deals/${run.acquirer}/${run.target}/teaser${qs ? `?${qs}` : ''}`;
+}
+
 function SavedBar({ run }: { run: SavedRun }) {
-  const teaser = `/deals/${run.acquirer}/${run.target}/teaser${run.query ? `?${run.query}` : ''}`;
+  const [copied, setCopied] = useState(false);
+  const teaser = teaserHref(run);
+  async function share() {
+    await navigator.clipboard.writeText(new URL(teaser, window.location.origin).toString());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  }
   function download() {
     const blob = new Blob([JSON.stringify(run, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -183,10 +219,78 @@ function SavedBar({ run }: { run: SavedRun }) {
       <Link href={teaser} target="_blank" className="font-semibold text-[#8DB4FF] hover:underline">
         Export teaser with AI findings ↗
       </Link>
+      {run.id && (
+        <button type="button" onClick={share} className="text-[#8DB4FF] hover:underline" title="Anyone with the link can open this run's teaser, on any device">
+          {copied ? '✓ Link copied' : 'Copy share link'}
+        </button>
+      )}
       <button type="button" onClick={download} className="text-[#8DB4FF] hover:underline">
         Download full results (JSON)
       </button>
     </div>
+  );
+}
+
+/** Earlier runs for this pair, stored in Supabase `deal_room_runs`. Hidden when Supabase is not configured. */
+function RunHistory({ acquirer, target, current, refreshKey, onOpen }: { acquirer: string; target: string; current?: string; refreshKey?: string; onOpen: (run: SavedRun) => void }) {
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [opening, setOpening] = useState<string | null>(null);
+  useEffect(() => {
+    fetch(`/api/deals/room?acquirer=${encodeURIComponent(acquirer)}&target=${encodeURIComponent(target)}&list=1`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { runs?: RunSummary[] } | null) => setRuns(j?.runs ?? []))
+      .catch(() => setRuns([]));
+  }, [acquirer, target, refreshKey]);
+  if (runs.length < 2) return null;
+  async function open(id: string) {
+    setOpening(id);
+    const run = await loadRun(acquirer, target, id);
+    setOpening(null);
+    if (run) onOpen(run);
+  }
+  return (
+    <details className="mt-3 rounded-xl border border-line bg-raised/30 px-4 py-2 text-[12px]">
+      <summary className="cursor-pointer text-sub">Run history ({runs.length})</summary>
+      <div className="-mx-4 mt-2 overflow-x-auto">
+        <table className="num w-full min-w-[520px]">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wider text-mute">
+              <th className="px-4 py-1 font-medium">When</th>
+              <th className="py-1 font-medium">Mode</th>
+              <th className="py-1 text-right font-medium">Cost synergies</th>
+              <th className="py-1 text-right font-medium">HSR</th>
+              <th className="py-1 text-right font-medium">Risks</th>
+              <th className="py-1 text-right font-medium">Run cost</th>
+              <th className="px-4 py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {runs.map((r) => (
+              <tr key={r.id} className={`border-t border-line/50 ${r.id === current ? 'text-ink' : 'text-sub'}`}>
+                <td className="px-4 py-1.5 font-sans">
+                  {new Date(r.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                  {r.status === 'partial' && <span className="ml-1.5 text-amber">partial</span>}
+                </td>
+                <td className="py-1.5 font-sans">{r.mode}</td>
+                <td className="py-1.5 text-right">{r.cost_synergies != null ? money(Number(r.cost_synergies)) : '—'}</td>
+                <td className="py-1.5 text-right">{r.hsr_score ?? '—'}</td>
+                <td className="py-1.5 text-right">{r.risk_count ?? '—'}</td>
+                <td className="py-1.5 text-right">${Number(r.cost_usd).toFixed(2)}</td>
+                <td className="px-4 py-1.5 text-right font-sans">
+                  {r.id === current ? (
+                    <span className="text-mark">showing</span>
+                  ) : (
+                    <button type="button" onClick={() => open(r.id)} className="text-[#8DB4FF] hover:underline" disabled={opening === r.id}>
+                      {opening === r.id ? 'Opening…' : 'Open'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   );
 }
 

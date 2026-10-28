@@ -213,7 +213,9 @@ export default async function Teaser({ params, searchParams }: Props) {
           </section>
         </ScaleToFit>
       </div>
-      <DealRoomExport acquirer={A.ticker} target={T.ticker} query={dealQuery(a, defaults)} backHref={`/deals/${A.ticker}/${T.ticker}${dealQuery(a, defaults)}`} />
+      <DealRoomExport acquirer={A.ticker} target={T.ticker} query={dealQuery(a, defaults)} backHref={`/deals/${A.ticker}/${T.ticker}${dealQuery(a, defaults)}`}
+        runId={typeof searchParams.room === 'string' ? searchParams.room : undefined}
+      />
     </div>
   );
 }
