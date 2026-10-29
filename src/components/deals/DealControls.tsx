@@ -22,7 +22,7 @@ interface SliderProps {
   color?: string;
 }
 
-function Slider(p: SliderProps) {
+export function Slider(p: SliderProps) {
   const fill = ((p.value - p.min) / (p.max - p.min || 1)) * 100;
   const markerPos = p.marker ? ((p.marker.value - p.min) / (p.max - p.min || 1)) * 100 : null;
   return (

@@ -27,7 +27,7 @@ create index if not exists deal_room_runs_created_at_idx on public.deal_room_run
 -- Every Claude call the app makes: powers the spend dashboard and the daily budget guard.
 create table if not exists public.ai_usage (
   id             bigint generated always as identity primary key,
-  feature        text not null,                     -- valuation_memo | deal_memo | proxy | deal_room
+  feature        text not null,                     -- valuation_memo | deal_memo | proxy | deal_room | bank_memo
   subject        text not null default '',          -- e.g. 'AAPL' or 'MSFT+EA'
   model          text,
   input_tokens   integer not null default 0,

@@ -7,7 +7,7 @@ import { costUsd, type Usage } from '../agents/verify.ts';
 // Anthropic bill. Every Claude call is logged to Supabase `ai_usage`; without
 // Supabase the guard falls back to per-instance memory (weaker, resets on cold start).
 
-export type AiFeature = 'valuation_memo' | 'deal_memo' | 'proxy' | 'deal_room';
+export type AiFeature = 'valuation_memo' | 'deal_memo' | 'proxy' | 'deal_room' | 'bank_memo';
 
 const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
 export const limits = () => ({

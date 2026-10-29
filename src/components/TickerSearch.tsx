@@ -1,9 +1,9 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-const SUGGEST: [string, string][] = [
+const COMPANY_SUGGEST: [string, string][] = [
   ['AAPL', 'Apple'], ['NVDA', 'NVIDIA'], ['DIS', 'Walt Disney'], ['MSFT', 'Microsoft'], ['COST', 'Costco'], ['KO', 'Coca-Cola'],
   ['GOOGL', 'Alphabet'], ['META', 'Meta Platforms'], ['AMZN', 'Amazon'], ['AMD', 'Advanced Micro Devices'], ['AVGO', 'Broadcom'],
   ['ORCL', 'Oracle'], ['CRM', 'Salesforce'], ['ADBE', 'Adobe'], ['NFLX', 'Netflix'], ['CMCSA', 'Comcast'], ['PEP', 'PepsiCo'],
@@ -14,8 +14,17 @@ const SUGGEST: [string, string][] = [
   ['ABNB', 'Airbnb'], ['BKNG', 'Booking Holdings'],
 ];
 
+const BANK_SUGGEST: [string, string][] = [
+  ['JPM', 'JPMorgan Chase'], ['BAC', 'Bank of America'], ['WFC', 'Wells Fargo'], ['C', 'Citigroup'], ['USB', 'U.S. Bancorp'], ['PNC', 'PNC Financial'],
+  ['TFC', 'Truist'], ['MTB', 'M&T Bank'], ['FITB', 'Fifth Third'], ['HBAN', 'Huntington'], ['KEY', 'KeyCorp'], ['CFG', 'Citizens'], ['ZION', 'Zions'],
+  ['CMA', 'Comerica'], ['EWBC', 'East West Bancorp'], ['WAL', 'Western Alliance'],
+];
+
 export function TickerSearch({ size = 'lg', autoFocus = false }: { size?: 'lg' | 'sm'; autoFocus?: boolean }) {
   const router = useRouter();
+  // In the Banks app the search opens bank valuations instead of the DCF workbench.
+  const banks = (usePathname() ?? '').startsWith('/banks');
+  const SUGGEST = banks ? BANK_SUGGEST : COMPANY_SUGGEST;
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -28,7 +37,7 @@ export function TickerSearch({ size = 'lg', autoFocus = false }: { size?: 'lg' |
     const ticker = t.trim().toUpperCase();
     if (!ticker) return;
     setOpen(false);
-    router.push(`/t/${encodeURIComponent(ticker)}`);
+    router.push(`${banks ? '/banks' : '/t'}/${encodeURIComponent(ticker)}`);
   }
 
   const lg = size === 'lg';
@@ -60,7 +69,7 @@ export function TickerSearch({ size = 'lg', autoFocus = false }: { size?: 'lg' |
             if (e.key === 'ArrowUp') setActive((i) => Math.max(0, i - 1));
             if (e.key === 'Escape') setOpen(false);
           }}
-          placeholder={lg ? 'Any US ticker, e.g. NVDA' : 'Ticker…'}
+          placeholder={lg ? 'Any US ticker, e.g. NVDA' : banks ? 'Bank ticker…' : 'Ticker…'}
           aria-label="Ticker"
           className={`num w-full min-w-0 bg-transparent uppercase text-ink placeholder:font-sans placeholder:normal-case placeholder:text-mute focus:outline-none ${lg ? 'text-lg' : 'text-sm'}`}
         />

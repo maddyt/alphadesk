@@ -14,6 +14,7 @@ export const TABLES = [
   { name: 'ai_usage', migration: '0004', purpose: 'Claude spend log and daily budget guard' },
   { name: 'filing_docs', migration: '0004', purpose: '10-K / 20-F / proxy text cache' },
   { name: 'mcp_calls', migration: '0004', purpose: 'SEC EDGAR MCP tool-call log' },
+  { name: 'saved_bank_models', migration: '0005', purpose: 'Saved BankVal scenarios' },
 ] as const;
 
 export interface Health {

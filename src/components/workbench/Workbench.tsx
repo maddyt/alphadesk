@@ -205,6 +205,11 @@ export function Workbench({ ds, overrides }: { ds: Dataset; overrides: Partial<A
             {ds.warnings.map((w) => (
               <div key={w} className="rounded-xl border border-amber/25 bg-amber/5 px-4 py-2 text-[12px] leading-relaxed text-amber">
                 {w}
+                {ds.isFinancial && w.startsWith('Financial institution') && (
+                  <Link href={`/banks/${ds.company.ticker}`} className="ml-1.5 font-semibold text-[#FBBF24] underline underline-offset-2">
+                    Value it as a bank in BankVal (P/TBV, DDM) →
+                  </Link>
+                )}
               </div>
             ))}
           </div>

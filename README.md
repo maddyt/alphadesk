@@ -9,6 +9,29 @@ Both layouts are responsive. On phones the controls move below the results, and 
 
 ---
 
+## BankVal AI: commercial bank valuation (FIG)
+
+A third app, **Banks** in the app switcher (`/banks`), built from the BankVal AI PRD. EV/EBITDA and FCFF don't work for banks, so BankVal values the equity directly:
+
+| PRD feature | Where |
+|---|---|
+| TCE = common equity − goodwill − intangibles; TBVPS; ROATCE = NI to common ÷ average TCE (§4.1) | `src/lib/banks/engine.ts` `bankInputs` |
+| OLS regression of P/TBV on ROATCE across peers. Banks are flagged rich or cheap by their residual. Includes a ROATCE slider, and you can click peers to include or exclude them (§4.2) | `regression`, `ScatterSvg` |
+| 3-stage DDM. Dividend capacity = NI − (RWA × target CET1 − prior CET1). Stage 1 is loan growth, stage 2 fades to terminal, then Gordon. Ke comes from CAPM on the live 10Y Treasury (§4.3) | `ddm`, `ddmGrid` |
+| Basel III capital stack (CET1 / AT1 / Tier 2) against the minimums plus the 2.5% conservation buffer, with the capital injection needed to hit the target | `capitalStack`, `CapitalGauge` |
+| Interest-rate duration-gap shock and deposit-run stress (SVB mechanism). Losses come from AFS/HTM securities, followed by a liquidity waterfall and CET1 after stress. AOCI can be counted in CET1 or not | `stressTest`, `LiquidityBars` |
+| Sliders: target CET1 9–13%, loan growth, Ke, terminal growth, rate shock, duration, deposit outflow. Every scenario is a URL | `BankWorkbench`, `params.ts` |
+| 1-click pitchbook PDF: a 1-page summary with the scatter, the DDM sensitivity table and capital adequacy | `/banks/[ticker]/summary` |
+| AI bank analysis: Claude with a Zod schema, every figure verified against the engine, cached, inside the AI spend guard | `src/lib/banks/memo.ts`, `/api/banks/memo` |
+| SEC XBRL tag map from PRD §6, plus fallbacks. The 2019+ `BankingRegulation…` capital tags are tried first | `src/lib/banks/xbrl.ts` |
+
+- **Peers:** 16 US commercial banks with live SEC data, cached for 12 hours. 13 of them also have an approximate FY2024 offline snapshot for `DATA_MODE=snapshot`.
+- **Capital estimates:** many holding companies tag regulatory capital only with a legal-entity dimension, which `companyfacts` omits. In that case CET1 is estimated as TCE and RWA as 70% of assets, and both are flagged ◆ in the UI.
+- **Uninsured deposits:** these are not in XBRL, so the deposit-outflow slider stands in for them.
+- **Supabase:** the `saved_bank_models` table (migration 0005) holds saved scenarios. Parsed bank XBRL and AI bank notes are cached in `feed_cache`.
+- **Not built:** the PRD's pgvector 10-K RAG. The SEC EDGAR MCP tools (`search_filing`, `read_filing_section`) already give full-text filing search without embeddings.
+- **API:** `GET /api/banks/JPM?tc=0.11&g=0.05` returns the full model as JSON.
+
 ## DealPulse AI Deal Room (agentic extension)
 
 A new **AI Deal Room** tab on every deal runs three Claude agents in parallel and streams their progress live:
@@ -166,9 +189,9 @@ With no keys at all, the app works fully in live mode: SEC EDGAR and Yahoo price
 ### 2. Supabase (recommended: history, sharing, caching, AI spend guard)
 
 1. Create a project at supabase.com.
-2. In the **SQL Editor**, paste all of `supabase/setup.sql` and click **Run**. It creates every table (migrations 0001–0004 in order) and is safe to run again.
+2. In the **SQL Editor**, paste all of `supabase/setup.sql` and click **Run**. It creates every table (migrations 0001–0005 in order) and is safe to run again.
 3. Copy the **Project URL** and the **secret / service_role key** (Project Settings → API Keys).
-4. After deploying, open **`/status`** on the site. Every table should show a green ✓.
+4. After deploying, open **`/status`** on the site. Every table (9 of them) should show a green ✓.
 
 | Table | What it gives you |
 |---|---|
@@ -180,6 +203,7 @@ With no keys at all, the app works fully in live mode: SEC EDGAR and Yahoo price
 | `ai_usage` | Every Claude call with tokens and cost. Powers the **daily budget guard**. The `ai_spend_daily` view shows spend by day and feature |
 | `filing_docs` | Full text of 10-K / 20-F / proxy filings, by accession number. Deal Room re-runs and MCP calls skip the download |
 | `mcp_calls` | Log of SEC EDGAR MCP tool calls, from external clients and the Risk agent |
+| `saved_bank_models` | **Save model** in BankVal and the saved list on the Banks page |
 
 All database access is server-side with the secret key. RLS is enabled with no policies, so the public anon key can read or write nothing.
 
